@@ -1,6 +1,6 @@
 ﻿#Requires -Version 5.0
 # ============================================================
-#  PC Admin & Performance Tool  v3.8 -- PowerShell GUI Edition
+#  PC Admin & Performance Tool  v3.9 -- PowerShell GUI Edition
 #  (c) 2024-2026 Abdullah | All Rights Reserved
 #  Contact: abuabdullah.be@outlook.com
 # ============================================================
@@ -10,8 +10,8 @@ try { [System.Windows.Forms.Application]::EnableVisualStyles() } catch {}
 try { [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false) } catch {}
 
 $COPY  = "(c) 2024-2026 Abdullah  |  All Rights Reserved  |  abuabdullah.be@outlook.com"
-$COPYL = "(c) 2024-2026 Abdullah  |  PC Admin & Performance Tool v3.8  |  All Rights Reserved  |  abuabdullah.be@outlook.com"
-$VER   = "v3.8  PowerShell GUI Edition"
+$COPYL = "(c) 2024-2026 Abdullah  |  PC Admin & Performance Tool v3.9  |  All Rights Reserved  |  abuabdullah.be@outlook.com"
+$VER   = "v3.9  PowerShell GUI Edition"
 $DIR   = if ($MyInvocation.MyCommand.Path) { Split-Path $MyInvocation.MyCommand.Path } else { $PWD.Path }
 $LOGD  = Join-Path $DIR "PC_Admin_Logs"
 if (-not (Test-Path $LOGD)) { New-Item -ItemType Directory -Path $LOGD | Out-Null }
@@ -2103,7 +2103,7 @@ function UpdCount {
 # FORM
 # ============================================================
 $F=New-Object System.Windows.Forms.Form
-$F.Text="PC Admin & Performance Tool  v3.8  --  (c) 2024-2026 Abdullah"
+$F.Text="PC Admin & Performance Tool  v3.9  --  (c) 2024-2026 Abdullah"
 $F.ClientSize=New-Object System.Drawing.Size(1380,860)
 $F.MinimumSize=New-Object System.Drawing.Size(1100,680)
 $F.BackColor=$BG;$F.StartPosition="CenterScreen"
@@ -2214,6 +2214,46 @@ $Script:RtbLog=New-Object System.Windows.Forms.RichTextBox;$Script:RtbLog.Dock="
 $Script:RtbLog.BackColor=$LOGBG;$Script:RtbLog.ForeColor=$OUT2;$Script:RtbLog.Font=MF
 $Script:RtbLog.BorderStyle="None";$Script:RtbLog.ReadOnly=$true
 $PR.Controls.Add($Script:RtbLog)
+# ---- v3.9 TARGET STATUS panel (right column, between the log header and the log) ----
+$PTS=New-Object System.Windows.Forms.Panel;$PTS.Dock="Top";$PTS.Height=202;$PTS.BackColor=$BG
+$lTs=New-Object System.Windows.Forms.Label;$lTs.Text="  TARGET STATUS"
+$lTs.SetBounds(0,2,108,24);$lTs.ForeColor=$TXTB;$lTs.Font=GF "Segoe UI" 8 -B;$lTs.TextAlign="MiddleLeft"
+$PTS.Controls.Add($lTs)
+$Script:BtnTs=New-Object System.Windows.Forms.Button;$Script:BtnTs.Text="Refresh status"
+$Script:BtnTs.SetBounds(110,3,104,22);$Script:BtnTs.BackColor=$CRD2;$Script:BtnTs.ForeColor=$TXT
+$Script:BtnTs.FlatStyle="Flat";$Script:BtnTs.FlatAppearance.BorderSize=0;$Script:BtnTs.Font=GF "Segoe UI" 8 -B
+$Script:BtnTs.Cursor=[System.Windows.Forms.Cursors]::Hand;$PTS.Controls.Add($Script:BtnTs)
+$Script:ChkLive=New-Object System.Windows.Forms.CheckBox;$Script:ChkLive.Text="Live (link + DNS, 5 s)"
+$Script:ChkLive.SetBounds(222,3,190,22);$Script:ChkLive.ForeColor=$TXT;$Script:ChkLive.Font=GF "Segoe UI" 8
+$Script:ChkLive.BackColor=[System.Drawing.Color]::Transparent;$PTS.Controls.Add($Script:ChkLive)
+$Script:TsNote=New-Object System.Windows.Forms.Label;$Script:TsNote.Text="Enter a hostname / IP to see its status."
+$Script:TsNote.SetBounds(4,27,410,16);$Script:TsNote.ForeColor=$TXDD;$Script:TsNote.Font=GF "Segoe UI" 8
+$Script:TsNote.AutoEllipsis=$true;$PTS.Controls.Add($Script:TsNote)
+$Script:TsTip=New-Object System.Windows.Forms.ToolTip
+$Script:TsCells=@()
+$tsCaps=@("Computer","Network","Link right now","Name resolves to","Uptime","Checked")
+for($i=0;$i -lt 6;$i++){
+    $cp=New-Object System.Windows.Forms.Panel;$cp.BackColor=$PNL
+    $cp.SetBounds(4+($i%2)*208,46+[int][math]::Floor($i/2)*44,204,41)
+    $c1=New-Object System.Windows.Forms.Label;$c1.Text=$tsCaps[$i].ToUpper()
+    $c1.SetBounds(4,2,196,12);$c1.ForeColor=$TXDD;$c1.Font=GF "Segoe UI" 7
+    $c2=New-Object System.Windows.Forms.Label;$c2.Text="-"
+    $c2.SetBounds(4,14,196,26);$c2.ForeColor=$TXTB;$c2.Font=GF "Segoe UI" 8 -B
+    $cp.Controls.Add($c1);$cp.Controls.Add($c2);$PTS.Controls.Add($cp)
+    $Script:TsCells+=,@{Cap=$c1;Val=$c2}
+}
+$Script:BtnTsDet=New-Object System.Windows.Forms.Button;$Script:BtnTsDet.Text="> Target details (adapters, services, VSS, disks, mapped drives)"
+$Script:BtnTsDet.SetBounds(4,178,410,22);$Script:BtnTsDet.BackColor=$BG;$Script:BtnTsDet.ForeColor=$CYAN
+$Script:BtnTsDet.FlatStyle="Flat";$Script:BtnTsDet.FlatAppearance.BorderSize=0;$Script:BtnTsDet.Font=GF "Segoe UI" 8 -B
+$Script:BtnTsDet.TextAlign="MiddleLeft";$Script:BtnTsDet.Cursor=[System.Windows.Forms.Cursors]::Hand
+$PTS.Controls.Add($Script:BtnTsDet)
+$PTD=New-Object System.Windows.Forms.Panel;$PTD.Dock="Top";$PTD.Height=150;$PTD.BackColor=$LOGBG;$PTD.Visible=$false
+$Script:TsDetail=New-Object System.Windows.Forms.TextBox;$Script:TsDetail.Dock="Fill";$Script:TsDetail.Multiline=$true
+$Script:TsDetail.ReadOnly=$true;$Script:TsDetail.ScrollBars="Vertical";$Script:TsDetail.BorderStyle="None"
+$Script:TsDetail.BackColor=$LOGBG;$Script:TsDetail.ForeColor=$OUT2;$Script:TsDetail.Font=MF
+$Script:TsDetail.Text="Press 'Refresh status' with username + password filled in."
+$PTD.Controls.Add($Script:TsDetail)
+$PR.Controls.Add($PTS);$PR.Controls.Add($PTD)
 $PM.Controls.Add($PR)
 
 # DIVIDER 1px
@@ -2307,7 +2347,7 @@ $PL.Controls.Add($PC)
 # Task list header
 $PTH=New-Object System.Windows.Forms.Panel;$PTH.Dock="Top";$PTH.Height=22;$PTH.BackColor=$BG
 $lTH=New-Object System.Windows.Forms.Label
-$lTH.Text=" TROUBLESHOOTING & PERFORMANCE OPTIONS  (85 operations)"
+$lTH.Text=" TROUBLESHOOTING & PERFORMANCE OPTIONS  (90 operations)"
 $lTH.Dock="Fill";$lTH.ForeColor=$TXDD;$lTH.Font=GF "Segoe UI" 8 -B;$lTH.TextAlign="MiddleLeft"
 $PTH.Controls.Add($lTH);$PL.Controls.Add($PTH)
 
@@ -2392,6 +2432,285 @@ $F.Add_Resize({$w=$PA.Width
 $Script:TxH.Add_KeyDown({if($_.KeyCode -eq "Return"){$Script:BtnT.PerformClick()}})
 $Script:TxP.Add_KeyDown({if($_.KeyCode -eq "Return"){$Script:BtnT.PerformClick()}})
 
+# ============================================================
+# v3.9  TARGET STATUS PANEL  (read-only; nothing here changes the target)
+#   ADMIN-SIDE : DNS + ping + WinRM port, from this PC (no login) -- safe to repeat every few seconds
+#   SNAPSHOT   : one short read-only script over WinRM (needs the credentials)
+# ============================================================
+$Script:StatusBody = @'
+$ErrorActionPreference = 'SilentlyContinue'
+$ProgressPreference = 'SilentlyContinue'
+function Emit([string]$k, $v) { Write-Output ('PCAT_ST|' + $k + '|' + (([string]$v) -replace '[\r\n|]+', ' ')) }
+try {
+    $cs = Get-CimInstance Win32_ComputerSystem
+    $os = Get-CimInstance Win32_OperatingSystem
+    Emit 'name' $env:COMPUTERNAME
+    if ($cs.PartOfDomain) { Emit 'member' ('DOMAIN ' + $cs.Domain) } else { Emit 'member' ('WORKGROUP ' + $cs.Workgroup) }
+    Emit 'os' ($os.Caption + ' (build ' + $os.BuildNumber + ')')
+    Emit 'model' ($cs.Manufacturer + ' ' + $cs.Model)
+    Emit 'ram_gb' ([math]::Round($os.TotalVisibleMemorySize / 1MB, 1))
+    Emit 'uptime_s' ([int]((Get-Date) - $os.LastBootUpTime).TotalSeconds)
+    Emit 'logged_on' $cs.UserName
+} catch { Emit 'err_system' $_.Exception.Message }
+try {
+    foreach ($c in @(Get-NetIPConfiguration | Where-Object { $_.NetAdapter.Status -eq 'Up' -and $_.IPv4Address })) {
+        $ip = $c.IPv4Address[0]
+        $gw = ''; if ($c.IPv4DefaultGateway) { $gw = $c.IPv4DefaultGateway[0].NextHop }
+        $dns = (@((Get-DnsClientServerAddress -InterfaceIndex $c.InterfaceIndex -AddressFamily IPv4).ServerAddresses) -join ',')
+        $dh = (Get-NetIPInterface -InterfaceIndex $c.InterfaceIndex -AddressFamily IPv4).Dhcp
+        Emit 'net' ('{0};{1};{2};{3};{4};{5}' -f $c.InterfaceAlias, $ip.IPAddress, $ip.PrefixLength, $gw, $dns, $dh)
+    }
+} catch { Emit 'err_network' $_.Exception.Message }
+try {
+    $sv = @(Get-Service)
+    Emit 'svc' ('{0};{1}' -f @($sv | Where-Object { $_.Status -eq 'Running' }).Count, $sv.Count)
+} catch { Emit 'err_services' $_.Exception.Message }
+try {
+    Emit 'vss_copies' @(Get-CimInstance Win32_ShadowCopy).Count
+    $vo = (& vssadmin list shadowstorage 2>$null) | Out-String
+    foreach ($blk in ($vo -split 'Shadow Copy Storage association')) {
+        if ($blk -match 'For volume:\s*\((\w):\)') {
+            $vl = $Matches[1]; $u = ''; $m = ''
+            if ($blk -match 'Used Shadow Copy Storage space:\s*([^\r\n]+)') { $u = $Matches[1].Trim() }
+            if ($blk -match 'Maximum Shadow Copy Storage space:\s*([^\r\n]+)') { $m = $Matches[1].Trim() }
+            Emit ('vss_' + $vl) ($u + ';' + $m)
+        }
+    }
+} catch { Emit 'err_vss' $_.Exception.Message }
+try {
+    $types = @(Get-PhysicalDisk | ForEach-Object { [string]$_.MediaType } | Where-Object { $_ } | Sort-Object -Unique)
+    Emit 'disk_types' ($types -join ',')
+    foreach ($d in @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3')) {
+        Emit 'disk' ('{0};{1};{2}' -f $d.DeviceID, [math]::Round($d.Size / 1GB, 1), [math]::Round($d.FreeSpace / 1GB, 1))
+    }
+} catch { Emit 'err_disks' $_.Exception.Message }
+try {
+    foreach ($k in @(Get-ChildItem Registry::HKEY_USERS)) {
+        $sid = $k.PSChildName
+        if ($sid -notmatch '^S-1-5-21-[\d-]+$') { continue }
+        $acct = $sid
+        try { $acct = (New-Object Security.Principal.SecurityIdentifier $sid).Translate([Security.Principal.NTAccount]).Value } catch {}
+        $nk = 'Registry::HKEY_USERS\' + $sid + '\Network'
+        if (Test-Path $nk) {
+            foreach ($d in @(Get-ChildItem $nk)) {
+                Emit 'drive' ('{0};{1}:;{2}' -f $acct, $d.PSChildName.ToUpper(), (Get-ItemProperty $d.PSPath).RemotePath)
+            }
+        }
+    }
+} catch { Emit 'err_drives' $_.Exception.Message }
+try {
+    $pr = (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
+          (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
+          ($null -ne (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations)
+    Emit 'pending_reboot' $pr
+} catch { Emit 'err_pending' $_.Exception.Message }
+Emit 'done' '1'
+'@
+$Script:TsCache=@{};$Script:TsBusy=$false;$Script:TsJob=$null;$Script:TsDeep=$false;$Script:TsPrevUp=$null;$Script:TsHost=""
+
+function ConvertFrom-StatusText([string]$text){
+    $d=@{Net=@();Disks=@();Drives=@();Vss=@{};Errors=@();Svc=$null;Name=$null;Member="";Os="-";Model="";Ram="-";Uptime=$null;LoggedOn="";VssCopies=$null;DiskTypes=$null;Pending=""}
+    foreach($ln in ($text -split "`r?`n")){
+        $line=$ln.Trim()
+        if(-not $line.StartsWith('PCAT_ST|')){continue}
+        $parts=$line.Split([char]'|',3)
+        if($parts.Count -lt 3){continue}
+        $k=$parts[1];$v=$parts[2]
+        if($k -eq 'net'){
+            $f=@($v.Split(';'))+@('','','','','','')
+            $dns=@($f[4].Split(',')|Where-Object{$_})
+            $mode='Static';if($f[5] -eq 'Enabled'){$mode='DHCP'}
+            $d.Net+=,@{Alias=$f[0];Ip=$f[1];Prefix=$f[2];Gw=$f[3];Dns=$dns;Mode=$mode}
+        }
+        elseif($k -eq 'svc'){$f=@($v.Split(';'))+@('0','0');$d.Svc=@([int]$f[0],[int]$f[1])}
+        elseif($k -eq 'disk'){$f=@($v.Split(';'))+@('','','');$d.Disks+=,@{Id=$f[0];Total=$f[1];Free=$f[2]}}
+        elseif($k -eq 'drive'){$f=@($v.Split(';'))+@('','','');$d.Drives+=,@{User=$f[0];Letter=$f[1];Share=$f[2]}}
+        elseif($k -eq 'vss_copies'){$d.VssCopies=$v}
+        elseif($k.StartsWith('vss_')){$f=@($v.Split(';'))+@('','');$d.Vss[$k.Substring(4).ToUpper()]=@{Used=$f[0];Max=$f[1]}}
+        elseif($k.StartsWith('err_')){$d.Errors+=($k.Substring(4)+': '+$v)}
+        elseif($k -eq 'name'){$d.Name=$v}
+        elseif($k -eq 'member'){$d.Member=$v}
+        elseif($k -eq 'os'){$d.Os=$v}
+        elseif($k -eq 'model'){$d.Model=$v}
+        elseif($k -eq 'ram_gb'){$d.Ram=$v}
+        elseif($k -eq 'uptime_s'){$d.Uptime=$v}
+        elseif($k -eq 'logged_on'){$d.LoggedOn=$v}
+        elseif($k -eq 'disk_types'){$d.DiskTypes=$v}
+        elseif($k -eq 'pending_reboot'){$d.Pending=$v}
+    }
+    return $d
+}
+function Format-UptimeText($sec){
+    $s=0;if(-not [int]::TryParse([string]$sec,[ref]$s)){return "-"}
+    return ("{0}d {1}h {2}m" -f [int][math]::Floor($s/86400),[int][math]::Floor(($s%86400)/3600),[int][math]::Floor(($s%3600)/60))
+}
+function Build-StatusView([string]$hostName,$admin,$deep,[string]$deepErr,[bool]$busy,$snap=$null){
+    $chips=@();$isIp=($hostName -match '^\d{1,3}(\.\d{1,3}){3}$')
+    $ips=@();if($deep){$ips=@($deep.Net|ForEach-Object{$_.Ip})}
+    if($deep -and $deep.Name){$chips+=,@{L="Computer";T=("{0} - {1}" -f $deep.Name,$deep.Member);Lv=""}}
+    else{$chips+=,@{L="Computer";T=$hostName;Lv=""}}
+    if($deep -and $deep.Net.Count -gt 0){
+        $pri=$deep.Net[0];foreach($n in $deep.Net){if($n.Ip -eq $admin.TargetIp){$pri=$n;break}}
+        $extra="";if($deep.Net.Count -gt 1){$extra="  (+$($deep.Net.Count-1) more)"}
+        $chips+=,@{L=("Network ({0})" -f $pri.Alias);T=("{0} /{1} ({2}){3}" -f $pri.Ip,$pri.Prefix,$pri.Mode,$extra);Lv=""}
+    }else{$chips+=,@{L="Network";T="press Refresh status (needs login)";Lv=""}}
+    $linkUp=$false;$ti=$admin.TargetIp
+    if(-not $ti){$chips+=,@{L="Link right now";T="unknown - the name does not resolve";Lv="err"}}
+    elseif($admin.Ping -or $admin.Winrm){
+        $bits=@();if($admin.Ping){if($null -ne $admin.Rtt){$bits+=("ping {0}ms" -f $admin.Rtt)}else{$bits+="ping OK"}}else{$bits+="no ping"}
+        if($admin.Winrm){$bits+="WinRM port open"}else{$bits+="WinRM port closed"}
+        $lv="warn";if($admin.Winrm){$lv="ok"}
+        $chips+=,@{L="Link right now";T=("UP at {0} ({1})" -f $ti,($bits -join ', '));Lv=$lv};$linkUp=$true
+    }else{$chips+=,@{L="Link right now";T=("DOWN at {0} (no ping, WinRM port closed)" -f $ti);Lv="err"}}
+    if($admin.Resolved){
+        $stale=($ips.Count -gt 0 -and ($ips -notcontains $admin.Resolved))
+        $txt="{0} -> {1}" -f $hostName.ToLower(),$admin.Resolved;$lv=""
+        if($stale){$txt+="  (STALE: target reports "+($ips -join ', ')+")";$lv="warn"}
+        $chips+=,@{L="Name resolves to";T=$txt;Lv=$lv}
+    }elseif($isIp){
+        $t2="typed IP (no reverse name)";if($admin.Reverse){$t2="reverse DNS: "+$admin.Reverse}
+        $chips+=,@{L="Name resolves to";T=$t2;Lv=""}
+    }else{$chips+=,@{L="Name resolves to";T="NOTHING (DNS has no answer)";Lv="err"}}
+    if($deep -and $null -ne $deep.Uptime){
+        $pr=($deep.Pending -eq 'True');$upv=$deep.Uptime
+        if($snap){$tmp=0;if([int]::TryParse([string]$upv,[ref]$tmp)){$upv=$tmp+[int]((Get-Date)-$snap.At).TotalSeconds}}
+        $ut=Format-UptimeText $upv;$lv=""
+        if($pr){$ut+="  - RESTART PENDING";$lv="warn"}
+        if($snap){$ut+="  (snapshot "+$snap.At.ToString('HH:mm:ss')+")"}
+        $chips+=,@{L="Uptime";T=$ut;Lv=$lv}
+    }else{$chips+=,@{L="Uptime";T="-";Lv=""}}
+    $chips+=,@{L="Checked";T=$admin.At;Lv=""}
+    $L=New-Object System.Collections.Generic.List[string]
+    if($deep -and $snap){[void]$L.Add("(snapshot taken "+$snap.At.ToString('HH:mm:ss')+" - link and DNS above are live; press Refresh status to re-read)")}
+    if($deep){
+        foreach($n in $deep.Net){[void]$L.Add(("Adapter     : {0}  {1}/{2}  gw {3}  dns {4}  [{5}]" -f $n.Alias,$n.Ip,$n.Prefix,$(if($n.Gw){$n.Gw}else{'-'}),$(if($n.Dns.Count){$n.Dns -join ', '}else{'-'}),$n.Mode))}
+        if($deep.Net.Count -eq 0){[void]$L.Add("Adapter     : no active IPv4 adapter reported")}
+        if($deep.Svc){[void]$L.Add(("Services    : {0} running / {1} total" -f $deep.Svc[0],$deep.Svc[1]))}
+        if($null -ne $deep.VssCopies){
+            $vs=@($deep.Vss.Keys|Sort-Object|ForEach-Object{"{0}: used {1}, max {2}" -f $_,$(if($deep.Vss[$_].Used){$deep.Vss[$_].Used}else{'?'}),$(if($deep.Vss[$_].Max){$deep.Vss[$_].Max}else{'?'})}) -join '; '
+            $vt="VSS         : $($deep.VssCopies) shadow copies";if($vs){$vt+="  ($vs)"}
+            [void]$L.Add($vt)
+        }
+        if($null -ne $deep.DiskTypes){[void]$L.Add("Disk type   : "+$(if($deep.DiskTypes){$deep.DiskTypes}else{'unknown'}))}
+        foreach($dk in $deep.Disks){[void]$L.Add(("Drive {0,-5}: {1} GB free of {2} GB" -f $dk.Id,$dk.Free,$dk.Total))}
+        if($deep.Drives.Count){foreach($dr in $deep.Drives){[void]$L.Add(("Mapped drv  : {0}  {1}  {2}" -f $dr.User,$dr.Letter,$dr.Share))}}
+        else{[void]$L.Add("Mapped drv  : none (for signed-in users)")}
+        [void]$L.Add(("OS          : {0}   RAM {1} GB   {2}" -f $deep.Os,$deep.Ram,$deep.Model))
+        $lo=$deep.LoggedOn;if(-not $lo){$lo="(nobody at the console)"}
+        [void]$L.Add("Logged on   : $lo")
+        foreach($e in $deep.Errors){[void]$L.Add("(partial) $e")}
+    }elseif($busy){[void]$L.Add("A run is in progress - the login snapshot is paused; link and DNS keep updating.")}
+    elseif($deepErr){[void]$L.Add("Snapshot not available: $deepErr")}
+    else{[void]$L.Add("Press 'Refresh status' (with username + password filled in) for the full snapshot.")}
+    return @{Chips=$chips;Detail=($L -join "`r`n");LinkUp=$linkUp;DeepOk=[bool]$deep;DeepErr=$deepErr;Busy=$busy}
+}
+function Set-StatusView($view){
+    $cols=@{ok=$GRN;warn=$YEL;err=$RED}
+    for($i=0;$i -lt $Script:TsCells.Count -and $i -lt $view.Chips.Count;$i++){
+        $c=$view.Chips[$i];$cell=$Script:TsCells[$i]
+        $cell.Cap.Text=$c.L.ToUpper();$cell.Val.Text=$c.T
+        if($cols.ContainsKey($c.Lv)){$cell.Val.ForeColor=$cols[$c.Lv]}else{$cell.Val.ForeColor=$TXTB}
+    }
+    $Script:TsDetail.Text=$view.Detail
+    if($view.Busy){$Script:TsNote.Text="Run in progress - login snapshot paused."}
+    elseif($view.DeepErr){$Script:TsNote.Text=$view.DeepErr}
+    elseif($view.DeepOk){$Script:TsNote.Text="Snapshot read OK."}
+    else{$Script:TsNote.Text=""}
+}
+function Start-StatusRefresh([bool]$Deep){
+    $hn=$Script:TxH.Text.Trim()
+    if(-not $hn){$Script:TsNote.Text="Enter a hostname / IP to see its status.";return}
+    if($hn -notmatch '^[A-Za-z0-9][A-Za-z0-9._:-]{0,253}$'){$Script:TsNote.Text="That hostname / IP is not valid.";return}
+    if($Script:TsBusy){return}
+    $running=(-not $BtnRun.Enabled)
+    $Script:TsBusy=$true;$Script:TsDeep=$Deep;$Script:TsHost=$hn;$Script:TsBusyFlag=($Deep -and $running)
+    if($Deep){$Script:BtnTs.Enabled=$false;$Script:BtnTs.Text="Reading..."}
+    $doDeep=($Deep -and -not $running)
+    $un=$Script:TxU.Text.Trim();$pw=$Script:TxP.Text;$tr=$TMAP[$Script:CbA.SelectedItem]
+    $SH.TS=$null
+    $Script:TsJob=[PowerShell]::Create()
+    [void]$Script:TsJob.AddScript({param($h,$u,$p,$t,$deep,$body,$sh2)
+        $res=@{At=(Get-Date).ToString('HH:mm:ss');Resolved=$null;Reverse=$null;TargetIp=$null;Ping=$false;Rtt=$null;Ttl=$null;Winrm=$false;Deep='';DeepErr=''}
+        try{
+            if($h -match '^\d{1,3}(\.\d{1,3}){3}$'){
+                $res.TargetIp=$h
+                try{$e=[System.Net.Dns]::GetHostEntry($h).HostName;if($e -and $e -ne $h){$res.Reverse=$e}}catch{}
+            }else{
+                try{$a=[System.Net.Dns]::GetHostAddresses($h)|Where-Object{$_.AddressFamily -eq 'InterNetwork'}|Select-Object -First 1
+                    if($a){$res.Resolved=$a.IPAddressToString;$res.TargetIp=$res.Resolved}}catch{}
+            }
+            if($res.TargetIp){
+                $pg=$null;try{$pg=(New-Object System.Net.NetworkInformation.Ping).SendPingAsync($res.TargetIp,2000)}catch{}
+                $tcps=@();foreach($pt in 5985,5986){try{$tc=New-Object System.Net.Sockets.TcpClient;$tcps+=@{C=$tc;A=$tc.BeginConnect($res.TargetIp,$pt,$null,$null)}}catch{}}
+                Start-Sleep -Milliseconds 2100
+                try{if($pg -and $pg.IsCompleted -and -not $pg.IsFaulted -and $pg.Result.Status -eq 'Success'){$res.Ping=$true;$res.Rtt=$pg.Result.RoundtripTime;try{$res.Ttl=$pg.Result.Options.Ttl}catch{}}}catch{}
+                foreach($x in $tcps){try{if($x.A.IsCompleted -and $x.C.Connected){$res.Winrm=$true}}catch{};try{$x.C.Close()}catch{}}
+            }
+        }catch{}
+        if($deep){
+            if(-not $u -or -not $p){$res.DeepErr='Enter username and password for the login snapshot'}
+            else{
+                try{
+                    $sec=ConvertTo-SecureString $p -AsPlainText -Force
+                    $cred=New-Object System.Management.Automation.PSCredential($u,$sec)
+                    $opts=New-PSSessionOption -OpenTimeout 10000 -OperationTimeout 40000 -NoMachineProfile
+                    $s=New-PSSession -ComputerName $h -Credential $cred -Authentication $t -SessionOption $opts -EA Stop
+                    $o=Invoke-Command -Session $s -ScriptBlock ([scriptblock]::Create($body)) -EA Stop
+                    Remove-PSSession $s -EA SilentlyContinue
+                    $res.Deep=($o|Out-String)
+                }catch{
+                    $m=$_.Exception.Message
+                    if($m -match 'credential|password|logon|Access is denied|authenticat'){$res.DeepErr='Authentication failed -- check username / password / transport'}
+                    elseif($m -match '5985|refused|timed out|network|WinRM'){$res.DeepErr='WinRM not reachable right now (target busy or network changing)'}
+                    else{if($m.Length -gt 160){$m=$m.Substring(0,160)};$res.DeepErr=$m}
+                }
+            }
+        }
+        $sh2.TS=$res
+    }).AddArgument($hn).AddArgument($un).AddArgument($pw).AddArgument($tr).AddArgument($doDeep).AddArgument($Script:StatusBody).AddArgument($SH)
+    $Script:TsAr=$Script:TsJob.BeginInvoke()
+    if(-not $Script:TsPoll){
+        $Script:TsPoll=New-Object System.Windows.Forms.Timer;$Script:TsPoll.Interval=250
+        $Script:TsPoll.Add_Tick({
+            if($Script:TsJob -and $Script:TsJob.InvocationStateInfo.State -ne "Running"){
+                $Script:TsPoll.Stop()
+                try{$Script:TsJob.Dispose()}catch{}
+                $Script:TsBusy=$false;$Script:BtnTs.Enabled=$true;$Script:BtnTs.Text="Refresh status"
+                $r=$SH.TS
+                if($r){
+                    $deep=$null;$derr=[string]$r.DeepErr
+                    if($r.Deep){$deep=ConvertFrom-StatusText $r.Deep;if(-not $deep.Name -and $deep.Net.Count -eq 0){$deep=$null;if(-not $derr){$derr="No data returned"}}}
+                    $snap=$null;$ck=$Script:TsHost.ToLower()
+                    if($deep){$Script:TsCache[$ck]=@{At=(Get-Date);Deep=$deep}}
+                    elseif($Script:TsCache.ContainsKey($ck) -and (((Get-Date)-$Script:TsCache[$ck].At).TotalHours -lt 6)){$deep=$Script:TsCache[$ck].Deep;$snap=@{At=$Script:TsCache[$ck].At}}
+                    $view=Build-StatusView $Script:TsHost $r $deep $derr $Script:TsBusyFlag $snap
+                    Set-StatusView $view
+                    $wasDown=($Script:TsPrevUp -eq $false);$Script:TsPrevUp=$view.LinkUp
+                    if((-not $Script:TsDeep) -and $wasDown -and $view.LinkUp -and $BtnRun.Enabled){
+                        $t1=New-Object System.Windows.Forms.Timer;$t1.Interval=1500
+                        $t1.Add_Tick({$this.Stop();$this.Dispose();Start-StatusRefresh $true});$t1.Start()
+                    }
+                }
+            }
+        })
+    }
+    $Script:TsPoll.Start()
+}
+
+# v3.9 Target Status wiring
+$Script:BtnTs.Add_Click({Start-StatusRefresh $true})
+$Script:TsLive=New-Object System.Windows.Forms.Timer;$Script:TsLive.Interval=5000
+$Script:TsLive.Add_Tick({if($F.Visible){Start-StatusRefresh $false}})
+$Script:ChkLive.Add_CheckedChanged({
+    if($Script:ChkLive.Checked){Start-StatusRefresh $false;$Script:TsLive.Start()}else{$Script:TsLive.Stop()}
+})
+$Script:TxH.Add_Leave({$Script:TsPrevUp=$null;Start-StatusRefresh $false})
+$Script:BtnTsDet.Add_Click({
+    $PTD.Visible=(-not $PTD.Visible)
+    if($PTD.Visible){$Script:BtnTsDet.Text="v Target details (adapters, services, VSS, disks, mapped drives)"}
+    else{$Script:BtnTsDet.Text="> Target details (adapters, services, VSS, disks, mapped drives)"}
+})
+
 # TEST CONNECTION
 $Script:BtnT.Add_Click({
     $hn=$Script:TxH.Text.Trim();$un=$Script:TxU.Text.Trim()
@@ -2421,7 +2740,7 @@ $Script:BtnT.Add_Click({
         if($Script:TestJob.InvocationStateInfo.State -ne "Running"){
             $Script:TestTimer.Stop();$Script:BtnT.Enabled=$true
             switch($SH.CR){
-                "ok"   {ConnStat "Connected OK" $GRN;LogIt "  Connected: $($SH.CM)" "ok"}
+                "ok"   {ConnStat "Connected OK" $GRN;LogIt "  Connected: $($SH.CM)" "ok";Start-StatusRefresh $true}
                 "cred" {ConnStat "Auth Failed"  $RED;LogIt "  Auth FAILED: $($SH.CM)" "err";LogIt "  Try: DOMAIN\username  or  user@domain.local" "dim"}
                 "winrm"{ConnStat "WinRM Failed" $RED;LogIt "  WinRM not reachable: $($SH.CM)" "err";LogIt "  Run on target: Enable-PSRemoting -Force" "dim"}
                 default{ConnStat "Error"        $RED;LogIt "  Error: $($SH.CM)" "err"}}
@@ -2479,6 +2798,32 @@ $BtnStop.Add_Click({$SH.Stop=$true;LogIt "  ! STOP requested -- finishing curren
 #  SystemRoot, like the other editions), high_perf (now prints the ACTUAL active
 #  power scheme afterwards instead of assuming success). The launcher
 #  (Run-AdminTool.bat) is also rewritten -- see the README.
+#   v3.9 (Web edition: port 3039 -> 3041; this edition has no port):
+#     NEW  TARGET STATUS PANEL (all three editions). A live "what is this PC right now"
+#          view above the log, so you no longer have to run a report to see the
+#          target's state. Two layers, both READ-ONLY:
+#            ADMIN-SIDE (no login, cheap, repeatable): ping + WinRM TCP port + DNS
+#              name -> IP + reverse name, from THIS machine. Shows "Link right now:
+#              UP at <ip> (ping 2ms, WinRM port open)" or DOWN, and "Name resolves
+#              to" with a STALE warning when the name still points at an old IP
+#              that the target no longer reports. Tick "Live" to refresh every 5 s
+#              (it also keeps updating while a run is in progress -- you can watch
+#              the link flap during a network change).
+#            SNAPSHOT (needs the credentials; one short read-only script): computer
+#              name + domain/workgroup, adapter IP/mask/gateway/DNS and Static vs
+#              DHCP, uptime (+ RESTART PENDING flag), services running/total, VSS
+#              shadow copies + storage used/max, disk type (SSD/HDD) + free space,
+#              mapped drives of signed-in users, OS/RAM/model, logged-on user.
+#          The snapshot runs on "Refresh status", automatically after a successful
+#          Test Connection, after every run finishes, and when "Live" sees the link
+#          come back after being down. It is skipped (link/DNS keep updating) while
+#          a run is active so it never opens a second WinRM session mid-task. Each
+#          section of the script is independent: if one cannot be read (older
+#          Windows, localized vssadmin text) the rest still shows, with a
+#          "(partial)" note. Nothing on the target is changed.
+#          Web edition: new endpoint POST /api/status (hostname validated against
+#          the same allow-list as ping; credentials are used for that call only).
+#          Also fixed: the PowerShell GUI heading said "85 operations" (it is 90).
 #   v3.8 (port 3038 -> 3039):
 #      CHG  FINAL v3.8 DESIGN (supersedes the "detached" approach for network tasks):
 #           Set Static IP / Set DHCP / Flush DNS / Reset TCP-IP / adapter restarts run
@@ -2721,7 +3066,7 @@ $BtnRun.Add_Click({
         @{Id=$_.Id;L=$_.L;Cat=$_.Cat;Ds=$_.Ds;CT=$ctxt;D=$_.D;NC=[bool]$_.NC;LG=[bool]$_.LG;P=[bool]$_.P;MON=[bool]$_.MON;PV=$vals[$_.Id]}
     }
     $SH.OD=$od;$SH.HN=$hn;$SH.UN=$un;$SH.PW=$pw;$SH.TR=$tr;$SH.LF=$Script:LogFile;$SH.CP=$COPY
-    $hdrs=@("="*55,"  PC ADMIN & PERFORMANCE TOOL  v3.8 -- PowerShell Edition","  $COPYL","="*55,
+    $hdrs=@("="*55,"  PC ADMIN & PERFORMANCE TOOL  v3.9 -- PowerShell Edition","  $COPYL","="*55,
        "  Target   : $hn","  Username : $un  [$tr]","  Date/Time: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")",
        "  Tasks    : $($sel.Count) selected","  Log File : $(Split-Path $Script:LogFile -Leaf)","="*55,"")
     foreach($hline in $hdrs){
@@ -3315,7 +3660,9 @@ $UT.Add_Tick({
         $Script:LblDot.ForeColor=$TXDD;$Script:LblTask.Text=""
         $Script:LblStat.Text=if($SH.Stop){"Stopped -- review log"}else{"All tasks completed -- log saved"}
         try{$Script:BgPS.Dispose()}catch{};try{$Script:BgRS.Close();$Script:BgRS.Dispose()}catch{}
-        $Script:LogFile=$null}
+        $Script:LogFile=$null
+        $t2=New-Object System.Windows.Forms.Timer;$t2.Interval=2500
+        $t2.Add_Tick({$this.Stop();$this.Dispose();Start-StatusRefresh $true});$t2.Start()}
 })
 $UT.Start()
 
@@ -3326,10 +3673,11 @@ $F.Add_Shown({
     $PF.SendToBack()
     $PA.SendToBack()
     $PM.BringToFront()
+    $PTD.SendToBack();$PTS.SendToBack();$PRL.SendToBack();$Script:RtbLog.BringToFront()
 
     $w=$PA.Width;$BtnLogs.Left=$w-104;$Script:LblCnt.Left=[math]::Max(640,$w-312)
     TabClk "all"
-    LogIt "  PC Admin & Performance Tool  v3.8 -- PowerShell GUI Edition" "hdr"
+    LogIt "  PC Admin & Performance Tool  v3.9 -- PowerShell GUI Edition" "hdr"
     LogIt "  $COPY" "dim";LogIt ("  "+"-"*50) "dim"
     LogIt "  $($Ops.Count) operations ready across $(@($Ops | ForEach-Object { $_.Cat } | Select-Object -Unique).Count) categories" "info"
     LogIt "  Enter Hostname/IP -- Test Connection -- Select tasks -- Perform" "dim"

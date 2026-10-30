@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ================================================================================
-  PC Admin & Performance Tool  v3.8  -- Native Python GUI Edition (Tkinter)
+  PC Admin & Performance Tool  v3.9  -- Native Python GUI Edition (Tkinter)
   (c) 2024-2026 Abdullah | All Rights Reserved
   Contact: abuabdullah.be@outlook.com
   Unauthorized copying, modification or redistribution is strictly prohibited.
@@ -74,6 +74,33 @@
   install_and_run.bat had that defect and is rewritten, and its title
   line no longer runs the word Performance as a command. See the README.
 
+  v3.9 (Web edition: port 3039 -> 3041; this edition has no port):
+    NEW  TARGET STATUS PANEL (all three editions). A live "what is this PC right now"
+         view above the log, so you no longer have to run a report to see the
+         target's state. Two layers, both READ-ONLY:
+           ADMIN-SIDE (no login, cheap, repeatable): ping + WinRM TCP port + DNS
+             name -> IP + reverse name, from THIS machine. Shows "Link right now:
+             UP at <ip> (ping 2ms, WinRM port open)" or DOWN, and "Name resolves
+             to" with a STALE warning when the name still points at an old IP
+             that the target no longer reports. Tick "Live" to refresh every 5 s
+             (it also keeps updating while a run is in progress -- you can watch
+             the link flap during a network change).
+           SNAPSHOT (needs the credentials; one short read-only script): computer
+             name + domain/workgroup, adapter IP/mask/gateway/DNS and Static vs
+             DHCP, uptime (+ RESTART PENDING flag), services running/total, VSS
+             shadow copies + storage used/max, disk type (SSD/HDD) + free space,
+             mapped drives of signed-in users, OS/RAM/model, logged-on user.
+         The snapshot runs on "Refresh status", automatically after a successful
+         Test Connection, after every run finishes, and when "Live" sees the link
+         come back after being down. It is skipped (link/DNS keep updating) while
+         a run is active so it never opens a second WinRM session mid-task. Each
+         section of the script is independent: if one cannot be read (older
+         Windows, localized vssadmin text) the rest still shows, with a
+         "(partial)" note. Nothing on the target is changed.
+         Web edition: new endpoint POST /api/status (hostname validated against
+         the same allow-list as ping; credentials are used for that call only).
+         Also fixed: the PowerShell GUI heading said "85 operations" (it is 90).
+
   v3.8: same fix as the Web edition's v3.8 entry, ported 1:1 -- the detached
   launcher (network tasks / DISM / CHKDSK) now tries SYSTEM scheduled task,
   CIM, WMI, schtasks.exe and Start-Process in order, so 'PCAT_LAUNCH_FAIL:2'
@@ -109,10 +136,10 @@ import base64
 import secrets
 from pathlib import Path
 
-VER = "v3.8  Native Python GUI Edition (Tkinter)"
-COPYRIGHT = ("(c) 2024-2026 Abdullah | PC Admin & Performance Tool v3.8 | "
+VER = "v3.9  Native Python GUI Edition (Tkinter)"
+COPYRIGHT = ("(c) 2024-2026 Abdullah | PC Admin & Performance Tool v3.9 | "
              "All Rights Reserved | abuabdullah.be@outlook.com")
-COPYRIGHT_LONG = ("(c) 2024-2026 Abdullah | PC Admin & Performance Tool v3.8 | "
+COPYRIGHT_LONG = ("(c) 2024-2026 Abdullah | PC Admin & Performance Tool v3.9 | "
                    "Native Python GUI Edition | All Rights Reserved | "
                    "abuabdullah.be@outlook.com")
 
@@ -3014,7 +3041,7 @@ TRANSPORTS = [
 #  WINRM HELPERS  (same execution model as app.py: EncodedCommand via run_cmd,
 #  plus automatic session reconnect on timeout/connection loss)
 # ══════════════════════════════════════════════════════════════════════════
-def make_session(hostname, username, password, transport="ntlm", fast=False):
+def make_session(hostname, username, password, transport="ntlm", fast=False, status=False):
     """
     Returns a pypsrp.client.Client -- a real PSRP (PowerShell Remoting
     Protocol) client, identical in spirit to what New-PSSession/
@@ -3049,6 +3076,9 @@ def make_session(hostname, username, password, transport="ntlm", fast=False):
     )
     if fast:
         kwargs.update(connection_timeout=10, read_timeout=30, operation_timeout=20)
+    if status:
+        # v3.9 Target Status snapshot: fail fast if unreachable, but allow the ~10 s script to finish.
+        kwargs.update(connection_timeout=10, read_timeout=45, operation_timeout=40)
     if transport == "basic":
         kwargs["encryption"] = "never"
     return Client(hostname, **kwargs)
@@ -3838,6 +3868,275 @@ def launch_console(op_id, host, username, password, transport):
     return lines
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  v3.9  TARGET STATUS PANEL
+# ══════════════════════════════════════════════════════════════════════════════
+# A live "what is this PC right now" view that sits above the log:
+#   * ADMIN-SIDE checks (no login needed, cheap, safe to repeat every few seconds):
+#     ping, WinRM TCP port, DNS name -> IP, reverse name.  Shows whether the target
+#     is UP at the address you typed and whether its NAME still points at an old IP.
+#   * WinRM SNAPSHOT (needs the credentials, read-only, one short script): computer
+#     name + domain, Ethernet/adapter IP-mask-gateway-DNS and static/DHCP mode, uptime,
+#     services running/total, VSS shadow copies + storage, disk type + free space,
+#     mapped drives of signed-in users, pending reboot, logged-on user.
+# Nothing here changes anything on the target.
+STATUS_SCRIPT = r'''
+$ErrorActionPreference = 'SilentlyContinue'
+$ProgressPreference = 'SilentlyContinue'
+function Emit([string]$k, $v) { Write-Output ('PCAT_ST|' + $k + '|' + (([string]$v) -replace '[\r\n|]+', ' ')) }
+try {
+    $cs = Get-CimInstance Win32_ComputerSystem
+    $os = Get-CimInstance Win32_OperatingSystem
+    Emit 'name' $env:COMPUTERNAME
+    if ($cs.PartOfDomain) { Emit 'member' ('DOMAIN ' + $cs.Domain) } else { Emit 'member' ('WORKGROUP ' + $cs.Workgroup) }
+    Emit 'os' ($os.Caption + ' (build ' + $os.BuildNumber + ')')
+    Emit 'model' ($cs.Manufacturer + ' ' + $cs.Model)
+    Emit 'ram_gb' ([math]::Round($os.TotalVisibleMemorySize / 1MB, 1))
+    Emit 'uptime_s' ([int]((Get-Date) - $os.LastBootUpTime).TotalSeconds)
+    Emit 'logged_on' $cs.UserName
+} catch { Emit 'err_system' $_.Exception.Message }
+try {
+    foreach ($c in @(Get-NetIPConfiguration | Where-Object { $_.NetAdapter.Status -eq 'Up' -and $_.IPv4Address })) {
+        $ip = $c.IPv4Address[0]
+        $gw = ''; if ($c.IPv4DefaultGateway) { $gw = $c.IPv4DefaultGateway[0].NextHop }
+        $dns = (@((Get-DnsClientServerAddress -InterfaceIndex $c.InterfaceIndex -AddressFamily IPv4).ServerAddresses) -join ',')
+        $dh = (Get-NetIPInterface -InterfaceIndex $c.InterfaceIndex -AddressFamily IPv4).Dhcp
+        Emit 'net' ('{0};{1};{2};{3};{4};{5}' -f $c.InterfaceAlias, $ip.IPAddress, $ip.PrefixLength, $gw, $dns, $dh)
+    }
+} catch { Emit 'err_network' $_.Exception.Message }
+try {
+    $sv = @(Get-Service)
+    Emit 'svc' ('{0};{1}' -f @($sv | Where-Object { $_.Status -eq 'Running' }).Count, $sv.Count)
+} catch { Emit 'err_services' $_.Exception.Message }
+try {
+    Emit 'vss_copies' @(Get-CimInstance Win32_ShadowCopy).Count
+    $vo = (& vssadmin list shadowstorage 2>$null) | Out-String
+    foreach ($blk in ($vo -split 'Shadow Copy Storage association')) {
+        if ($blk -match 'For volume:\s*\((\w):\)') {
+            $vl = $Matches[1]; $u = ''; $m = ''
+            if ($blk -match 'Used Shadow Copy Storage space:\s*([^\r\n]+)') { $u = $Matches[1].Trim() }
+            if ($blk -match 'Maximum Shadow Copy Storage space:\s*([^\r\n]+)') { $m = $Matches[1].Trim() }
+            Emit ('vss_' + $vl) ($u + ';' + $m)
+        }
+    }
+} catch { Emit 'err_vss' $_.Exception.Message }
+try {
+    $types = @(Get-PhysicalDisk | ForEach-Object { [string]$_.MediaType } | Where-Object { $_ } | Sort-Object -Unique)
+    Emit 'disk_types' ($types -join ',')
+    foreach ($d in @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3')) {
+        Emit 'disk' ('{0};{1};{2}' -f $d.DeviceID, [math]::Round($d.Size / 1GB, 1), [math]::Round($d.FreeSpace / 1GB, 1))
+    }
+} catch { Emit 'err_disks' $_.Exception.Message }
+try {
+    foreach ($k in @(Get-ChildItem Registry::HKEY_USERS)) {
+        $sid = $k.PSChildName
+        if ($sid -notmatch '^S-1-5-21-[\d-]+$') { continue }
+        $acct = $sid
+        try { $acct = (New-Object Security.Principal.SecurityIdentifier $sid).Translate([Security.Principal.NTAccount]).Value } catch {}
+        $nk = 'Registry::HKEY_USERS\' + $sid + '\Network'
+        if (Test-Path $nk) {
+            foreach ($d in @(Get-ChildItem $nk)) {
+                Emit 'drive' ('{0};{1}:;{2}' -f $acct, $d.PSChildName.ToUpper(), (Get-ItemProperty $d.PSPath).RemotePath)
+            }
+        }
+    }
+} catch { Emit 'err_drives' $_.Exception.Message }
+try {
+    $pr = (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
+          (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
+          ($null -ne (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations)
+    Emit 'pending_reboot' $pr
+} catch { Emit 'err_pending' $_.Exception.Message }
+Emit 'done' '1'
+'''
+
+
+def parse_status_output(text):
+    """Turn the 'PCAT_ST|key|value' lines printed by STATUS_SCRIPT into a dict."""
+    d = {"net": [], "disks": [], "drives": [], "vss": {}, "errors": []}
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line.startswith("PCAT_ST|"):
+            continue
+        parts = line.split("|", 2)
+        if len(parts) < 3:
+            continue
+        k, v = parts[1], parts[2]
+        if k == "net":
+            f = (v.split(";") + [""] * 6)[:6]
+            d["net"].append({"alias": f[0], "ip": f[1], "prefix": f[2], "gw": f[3],
+                             "dns": [x for x in f[4].split(",") if x], "mode": ("DHCP" if f[5].lower() == "enabled" else "Static")})
+        elif k == "svc":
+            f = (v.split(";") + ["0", "0"])[:2]
+            d["svc"] = (int(f[0] or 0), int(f[1] or 0))
+        elif k == "disk":
+            f = (v.split(";") + ["", "", ""])[:3]
+            d["disks"].append({"id": f[0], "total": f[1], "free": f[2]})
+        elif k == "drive":
+            f = (v.split(";") + ["", "", ""])[:3]
+            d["drives"].append({"user": f[0], "letter": f[1], "share": f[2]})
+        elif k.startswith("vss_") and k != "vss_copies":
+            f = (v.split(";") + ["", ""])[:2]
+            d["vss"][k[4:].upper()] = {"used": f[0], "max": f[1]}
+        elif k.startswith("err_"):
+            d["errors"].append(k[4:] + ": " + v)
+        else:
+            d[k] = v
+    return d
+
+
+def status_admin_side(host):
+    """Cheap checks from THIS machine: DNS + ping + WinRM port. Never raises."""
+    out = {"host": host, "resolved": None, "reverse": None, "target_ip": None,
+           "ping": False, "rtt": None, "ttl": None, "winrm": False, "at": time.strftime("%H:%M:%S")}
+    try:
+        if not _HOST_RE.match(host or ""):
+            out["error"] = "invalid host"
+            return out
+        if _is_ipv4(host):
+            r = _resolve_safely(socket.gethostbyaddr, host)
+            out["reverse"] = r[0] if r and r[0] and r[0].lower() != host else None
+            out["target_ip"] = host
+        else:
+            out["resolved"] = _resolve_safely(socket.gethostbyname, host)
+            out["target_ip"] = out["resolved"]
+        if out["target_ip"]:
+            det = _probe_detail(out["target_ip"])
+            out.update({"ping": det["ping"], "rtt": det["rtt"], "ttl": det["ttl"], "winrm": det["winrm"]})
+    except Exception as e:
+        out["error"] = str(e)
+    return out
+
+
+def status_deep(host, username, password, transport):
+    """Read-only WinRM snapshot. Returns (dict_or_None, error_text_or_None)."""
+    try:
+        sess = make_session(host, username, password, transport, status=True)
+        stdout, stderr, ok = run_remote_ps(sess, STATUS_SCRIPT)
+        d = parse_status_output(stdout)
+        if d.get("done") == "1" or d.get("name"):
+            return d, None
+        e = (stderr or "").strip()
+        if e.startswith("CRED_ERR"):
+            return None, "Authentication failed -- check username / password / transport"
+        if e.startswith("TIMEOUT_ERR"):
+            return None, "The snapshot timed out (target busy or network changing)"
+        if e.startswith("TRANSPORT_ERR"):
+            return None, "WinRM not reachable right now (" + e.split(":", 1)[-1][:120] + ")"
+        return None, (e[:160] or "No data returned")
+    except AuthenticationError:
+        return None, "Authentication failed -- check username / password / transport"
+    except Exception as e:
+        return None, "Snapshot failed: " + str(e)[:160]
+
+
+def _fmt_uptime(sec):
+    try:
+        s = int(sec)
+    except Exception:
+        return "-"
+    return f"{s // 86400}d {s % 86400 // 3600}h {s % 3600 // 60}m"
+
+
+def build_status(host, admin, deep=None, deep_err=None, busy=False, snap=None):
+    """Format the panel. Returns {'chips': [{'label','text','level'}], 'detail': str, 'link_up': bool}.
+    snap = (epoch_seconds, "HH:MM:SS") when `deep` is an OLDER snapshot being re-shown (link + DNS are still live)."""
+    chips = []
+    ips = [n["ip"] for n in (deep or {}).get("net", [])]
+    # Computer
+    if deep and deep.get("name"):
+        chips.append({"label": "Computer", "text": f"{deep['name']} - {deep.get('member', '')}", "level": ""})
+    else:
+        chips.append({"label": "Computer", "text": host, "level": ""})
+    # Network
+    nets = (deep or {}).get("net", [])
+    if nets:
+        pri = next((n for n in nets if n["ip"] == admin.get("target_ip")), nets[0])
+        extra = f"  (+{len(nets) - 1} more)" if len(nets) > 1 else ""
+        chips.append({"label": f"Network ({pri['alias']})", "text": f"{pri['ip']} /{pri['prefix']} ({pri['mode']}){extra}", "level": ""})
+    else:
+        chips.append({"label": "Network", "text": "press Refresh status (needs login)", "level": ""})
+    # Link
+    ti = admin.get("target_ip")
+    if admin.get("error"):
+        chips.append({"label": "Link right now", "text": admin["error"], "level": "err"})
+        link_up = False
+    elif not ti:
+        chips.append({"label": "Link right now", "text": "unknown - the name does not resolve", "level": "err"})
+        link_up = False
+    elif admin["ping"] or admin["winrm"]:
+        bits = []
+        if admin["ping"]:
+            bits.append("ping" + (f" {admin['rtt']:g}ms" if admin["rtt"] is not None else " OK"))
+        else:
+            bits.append("no ping")
+        bits.append("WinRM port open" if admin["winrm"] else "WinRM port closed")
+        chips.append({"label": "Link right now", "text": f"UP at {ti} ({', '.join(bits)})", "level": "ok" if admin["winrm"] else "warn"})
+        link_up = True
+    else:
+        chips.append({"label": "Link right now", "text": f"DOWN at {ti} (no ping, WinRM port closed)", "level": "err"})
+        link_up = False
+    # DNS
+    if admin.get("resolved"):
+        stale = bool(ips) and admin["resolved"] not in ips
+        txt = f"{host.lower()} -> {admin['resolved']}" + (f"  (STALE: target reports {', '.join(ips)})" if stale else "")
+        chips.append({"label": "Name resolves to", "text": txt, "level": "warn" if stale else ""})
+    elif _is_ipv4(host):
+        chips.append({"label": "Name resolves to", "text": (f"reverse DNS: {admin['reverse']}" if admin.get("reverse") else "typed IP (no reverse name)"), "level": ""})
+    else:
+        chips.append({"label": "Name resolves to", "text": "NOTHING (DNS has no answer)", "level": "err"})
+    # Uptime / pending reboot
+    if deep and deep.get("uptime_s") is not None:
+        pr = str(deep.get("pending_reboot", "")).lower() == "true"
+        up_s = deep["uptime_s"]
+        if snap:
+            try:
+                up_s = int(up_s) + int(time.time() - snap[0])
+            except Exception:
+                pass
+        chips.append({"label": "Uptime", "text": _fmt_uptime(up_s) + ("  - RESTART PENDING" if pr else "") + (f"  (snapshot {snap[1]})" if snap else ""), "level": "warn" if pr else ""})
+    else:
+        chips.append({"label": "Uptime", "text": "-", "level": ""})
+    chips.append({"label": "Checked", "text": admin.get("at", ""), "level": ""})
+    # Details
+    L = []
+    if deep and snap:
+        L.append(f"(snapshot taken {snap[1]} - link and DNS above are live; press Refresh status to re-read)")
+    if deep:
+        for n in nets:
+            L.append(f"Adapter     : {n['alias']}  {n['ip']}/{n['prefix']}  gw {n['gw'] or '-'}  dns {', '.join(n['dns']) or '-'}  [{n['mode']}]")
+        if not nets:
+            L.append("Adapter     : no active IPv4 adapter reported")
+        if deep.get("svc"):
+            L.append(f"Services    : {deep['svc'][0]} running / {deep['svc'][1]} total")
+        vc = deep.get("vss_copies")
+        if vc is not None:
+            vs = "; ".join(f"{k}: used {v['used'] or '?'}, max {v['max'] or '?'}" for k, v in deep.get("vss", {}).items())
+            L.append(f"VSS         : {vc} shadow copies" + (f"  ({vs})" if vs else ""))
+        if deep.get("disk_types") is not None:
+            L.append(f"Disk type   : {deep['disk_types'] or 'unknown'}")
+        for dk in deep.get("disks", []):
+            L.append(f"Drive {dk['id']:<5}: {dk['free']} GB free of {dk['total']} GB")
+        if deep.get("drives"):
+            for dr in deep["drives"]:
+                L.append(f"Mapped drv  : {dr['user']}  {dr['letter']}  {dr['share']}")
+        else:
+            L.append("Mapped drv  : none (for signed-in users)")
+        L.append(f"OS          : {deep.get('os', '-')}   RAM {deep.get('ram_gb', '-')} GB   {deep.get('model', '')}")
+        L.append(f"Logged on   : {deep.get('logged_on') or '(nobody at the console)'}")
+        for e in deep.get("errors", []):
+            L.append("(partial) " + e)
+    elif busy:
+        L.append("A run is in progress - the login snapshot is paused; link and DNS keep updating.")
+    elif deep_err:
+        L.append("Snapshot not available: " + deep_err)
+    else:
+        L.append("Press 'Refresh status' (with username + password filled in) for the full snapshot.")
+    return {"chips": chips, "detail": "\n".join(L), "link_up": link_up, "deep_ok": bool(deep), "deep_error": deep_err, "busy": busy, "snap_at": (snap[1] if snap else None)}
+
+
+
+
 # ══════════════════════════════════════════════════════════════════════════
 #  CUSTOM CANVAS CHECKBOX  (white border, red tick -- matches the docx spec)
 #  v3.1: rows for a parameterized op also render an inline entry-field grid
@@ -3988,8 +4287,8 @@ class PCAdminApp:
     def __init__(self, root):
         self.root = root
         root.title(f"PC Admin & Performance Tool -- {VER}")
-        root.geometry("1180x760")
-        root.minsize(980, 640)
+        root.geometry("1180x840")
+        root.minsize(980, 700)
         root.configure(bg=BG)
 
         self.rows = {}                 # id -> TaskRow
@@ -4000,6 +4299,10 @@ class PCAdminApp:
         self.stop_flag = _stop_flag       # same Event the engine polls
         self.worker = None
         self.running = False
+        self._ts_cache = {}
+        self._ts_busy = False
+        self._ts_after = None
+        self._ts_prev_up = None
 
         self._build_ui()
         self._poll_queue()
@@ -4048,6 +4351,8 @@ class PCAdminApp:
             return e
 
         self.tx_host = field(conn, "Hostname / IP")
+        self.tx_host.bind("<FocusOut>", lambda e: (setattr(self, "_ts_prev_up", None), self.refresh_status(False)))
+        self.tx_host.bind("<Return>", lambda e: self.refresh_status(False))
         self.tx_user = field(conn, "Username  (DOMAIN\\user or user@domain.local)")
         tk.Label(conn, text="Password", bg=PNL, fg=TXT,
                  font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=10, pady=(6, 0))
@@ -4177,6 +4482,43 @@ class PCAdminApp:
                                   font=("Segoe UI", 8))
         self.lbl_task.pack(side="right")
 
+        # ---- v3.9 Target Status panel ----
+        ts_head = tk.Frame(right, bg=BG)
+        ts_head.pack(fill="x", pady=(8, 2))
+        tk.Label(ts_head, text="TARGET STATUS", bg=BG, fg=TXTB,
+                 font=("Segoe UI", 8, "bold")).pack(side="left")
+        self.btn_ts = tk.Button(ts_head, text="Refresh status", bg=CRD2, fg=TXT, relief="flat",
+                                font=("Segoe UI", 8, "bold"), command=lambda: self.refresh_status(True))
+        self.btn_ts.pack(side="left", padx=8, ipady=2, ipadx=6)
+        self.ts_live = tk.BooleanVar(value=False)
+        tk.Checkbutton(ts_head, text="Live (link + DNS every 5 s)", variable=self.ts_live,
+                       command=self._ts_toggle_live, bg=BG, fg=TXT, selectcolor=CARD,
+                       activebackground=BG, font=("Segoe UI", 8)).pack(side="left")
+        self.lbl_ts_note = tk.Label(ts_head, text="", bg=BG, fg=TXDD, font=("Segoe UI", 8))
+        self.lbl_ts_note.pack(side="right")
+        ts_grid = tk.Frame(right, bg=BG)
+        ts_grid.pack(fill="x")
+        self.ts_cells = []
+        for i, lab in enumerate(["Computer", "Network", "Link right now", "Name resolves to", "Uptime", "Checked"]):
+            cell = tk.Frame(ts_grid, bg=PNL, highlightthickness=1, highlightbackground=BDR)
+            cell.grid(row=i // 3, column=i % 3, sticky="nsew", padx=2, pady=2)
+            small = tk.Label(cell, text=lab.upper(), bg=PNL, fg=TXDD, font=("Segoe UI", 7), anchor="w")
+            small.pack(fill="x", padx=6, pady=(3, 0))
+            val = tk.Label(cell, text="-", bg=PNL, fg=TXTB, font=("Segoe UI", 8, "bold"),
+                           anchor="w", justify="left", wraplength=170)
+            val.pack(fill="x", padx=6, pady=(0, 4))
+            self.ts_cells.append((small, val))
+        for c in range(3):
+            ts_grid.columnconfigure(c, weight=1, uniform="ts")
+        self.btn_ts_det = tk.Button(right, text="\u25B8 Target details (adapters, services, VSS, disks, mapped drives)",
+                                    bg=BG, fg=CYAN, relief="flat", anchor="w", font=("Segoe UI", 8, "bold"),
+                                    command=self._ts_toggle_detail)
+        self.btn_ts_det.pack(fill="x", pady=(2, 0))
+        self.txt_ts = tk.Text(right, height=7, bg=LOGBG, fg=OUT2, font=("Consolas", 8), relief="flat",
+                              wrap="word", state="disabled")
+        self._ts_detail_open = False
+        self._ts_set_detail("Press 'Refresh status' with username + password filled in.")
+
         log_wrap = tk.Frame(right, bg=LOGBG, highlightthickness=1,
                              highlightbackground=BDR)
         log_wrap.pack(fill="both", expand=True, pady=(6, 0))
@@ -4242,6 +4584,96 @@ class PCAdminApp:
             messagebox.showinfo("Logs", f"Log folder: {LOG_DIR}")
         except Exception as e:
             messagebox.showerror("Logs", str(e))
+
+    # ── v3.9 Target Status panel ───────────────────────────────────────
+    def _ts_set_detail(self, text):
+        self.txt_ts.configure(state="normal")
+        self.txt_ts.delete("1.0", "end")
+        self.txt_ts.insert("end", text)
+        self.txt_ts.configure(state="disabled")
+
+    def _ts_toggle_detail(self):
+        self._ts_detail_open = not self._ts_detail_open
+        if self._ts_detail_open:
+            self.txt_ts.pack(fill="x", pady=(0, 2), after=self.btn_ts_det)
+            self.btn_ts_det.config(text="\u25BE Target details (adapters, services, VSS, disks, mapped drives)")
+        else:
+            self.txt_ts.pack_forget()
+            self.btn_ts_det.config(text="\u25B8 Target details (adapters, services, VSS, disks, mapped drives)")
+
+    def _ts_toggle_live(self):
+        if self._ts_after is not None:
+            try:
+                self.root.after_cancel(self._ts_after)
+            except Exception:
+                pass
+            self._ts_after = None
+        if self.ts_live.get():
+            self._ts_tick()
+
+    def _ts_tick(self):
+        if not self.ts_live.get():
+            return
+        self.refresh_status(False)
+        self._ts_after = self.root.after(5000, self._ts_tick)
+
+    def refresh_status(self, deep=False):
+        host = self.tx_host.get().strip()
+        if not host:
+            self.lbl_ts_note.config(text="Enter a hostname / IP to see its status.")
+            return
+        if self._ts_busy:
+            return
+        self._ts_busy = True
+        user = self.tx_user.get().strip()
+        pwd = self.tx_pass.get()
+        transport = TRANSPORTS[self.cb_transport.current()][1]
+        if deep:
+            self.btn_ts.config(state="disabled", text="Reading...")
+
+        def worker():
+            res = None
+            try:
+                admin = status_admin_side(host)
+                d = err = snap = None
+                busy = False
+                key = host.lower()
+                if deep:
+                    if not user or not pwd:
+                        err = "Enter username and password for the login snapshot"
+                    elif self.running:
+                        busy = True        # a batch is running: do not open a second WinRM session
+                    else:
+                        d, err = status_deep(host, user, pwd, transport)
+                        if d:
+                            self._ts_cache[key] = (time.time(), time.strftime("%H:%M:%S"), d)
+                if d is None and key in self._ts_cache:
+                    ts, hms, cached = self._ts_cache[key]   # keep showing the last snapshot
+                    if time.time() - ts < 6 * 3600:
+                        d, snap = cached, (ts, hms)
+                res = build_status(host, admin, d, err, busy, snap)
+            except Exception as e:
+                res = {"chips": [], "detail": "Status error: " + str(e)[:160], "link_up": False,
+                       "deep_ok": False, "deep_error": str(e)[:160], "busy": False}
+            self.q.put(("status", res, deep))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _ts_apply(self, res, deep):
+        self._ts_busy = False
+        self.btn_ts.config(state="normal", text="Refresh status")
+        colors = {"ok": GRN, "warn": YEL, "err": RED, "": TXTB}
+        for i, c in enumerate(res.get("chips", [])[:len(self.ts_cells)]):
+            small, val = self.ts_cells[i]
+            small.config(text=c["label"].upper())
+            val.config(text=c["text"], fg=colors.get(c["level"], TXTB))
+        self._ts_set_detail(res.get("detail", ""))
+        self.lbl_ts_note.config(text=("Run in progress - login snapshot paused." if res.get("busy")
+                                      else (res.get("deep_error") or ("Snapshot read OK." if res.get("deep_ok") else ""))))
+        was_down = (self._ts_prev_up is False)
+        self._ts_prev_up = res.get("link_up")
+        if (not deep) and was_down and res.get("link_up") and not self.running:
+            self.root.after(1500, lambda: self.refresh_status(True))
 
     # ────────────────────────────────────────────────────────────────
     def test_connection(self):
@@ -4599,6 +5031,9 @@ class PCAdminApp:
                     pct = int((idx / max(total, 1)) * 100)
                     self.prg["value"] = pct
                     self.lbl_stat.config(text=task_text)
+                elif kind == "status":
+                    _, res, deep = item
+                    self._ts_apply(res, deep)
                 elif kind == "test_result":
                     _, status, msg = item
                     self.btn_test.config(state="normal", text="Test Connection")
@@ -4606,6 +5041,7 @@ class PCAdminApp:
                     if status == "ok":
                         messagebox.showinfo("Connection OK", msg)
                         self._log("ok", f"  Connected: {msg}")
+                        self.refresh_status(True)
                     else:
                         messagebox.showerror("Connection Failed", msg)
                         self._log("err", f"  {msg}")
@@ -4627,6 +5063,7 @@ class PCAdminApp:
                         except Exception:
                             pass
                     self.log_file = None
+                    self.root.after(2500, lambda: self.refresh_status(True))
         except queue.Empty:
             pass
         self.root.after(80, self._poll_queue)

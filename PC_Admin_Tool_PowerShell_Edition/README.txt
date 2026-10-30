@@ -1,5 +1,18 @@
-PC Admin & Performance Tool -- PowerShell GUI Edition  (v3.8)
+PC Admin & Performance Tool -- PowerShell GUI Edition  (v3.9)
 ================================================================
+
+WHAT'S NEW IN v3.9
+  - (This edition has no web port; the Web edition moved to 3041.)
+  - NEW: TARGET STATUS panel above the log. Shows, live, whether the target is UP
+    (ping + WinRM port), which IP its NAME resolves to (with a STALE warning when
+    DNS still points at an old IP), its computer name/domain, adapter IP/mask/
+    gateway/DNS and Static-vs-DHCP, uptime (+ restart pending), services, VSS
+    shadow copies, SSD/HDD + free space, mapped drives and the logged-on user.
+    "Refresh status" reads the full snapshot (read-only, needs the login); tick
+    "Live" to refresh link + DNS every 5 s. It refreshes by itself after Test
+    Connection succeeds and after every run, and stays out of the way while a
+    run is active. Click "Target details" for the full list. Same panel in all
+    three editions. Nothing on the target is changed.
 
 WHAT'S NEW IN v3.8
   - REVERTED TO THE v3.6 METHOD for the network tasks (Set Static IP, Set DHCP,
