@@ -1,6 +1,6 @@
 @echo off
 :: ============================================================
-::  PC Admin and Performance Tool -- Web-Service Edition  (v3.8)
+::  PC Admin and Performance Tool -- Web-Service Edition  (v3.10)
 ::  CONSOLE / TEST MODE -- runs in the foreground for quick testing.
 ::  For a real background Windows Service (services.msc, auto-start
 ::  on boot), use install_service.bat instead.
@@ -20,7 +20,7 @@ cd /d "%~dp0"
 set PCA_PORT=3030
 
 echo ============================================================
-echo   PC Admin and Performance Tool - Web Service Edition v3.8
+echo   PC Admin and Performance Tool - Web Service Edition v3.10
 echo   TEST MODE   ^(bundle v16, port %PCA_PORT%^)
 echo ============================================================
 echo [CHECKPOINT 1] Script started. Folder: "%CD%"

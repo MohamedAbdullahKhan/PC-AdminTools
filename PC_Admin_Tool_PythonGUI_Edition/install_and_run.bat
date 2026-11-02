@@ -1,6 +1,6 @@
 @echo off
 :: ============================================================
-::  PC Admin and Performance Tool -- Native Python GUI Edition  (v3.9)
+::  PC Admin and Performance Tool -- Native Python GUI Edition  (v3.10)
 ::  Double-click to install dependencies and launch the GUI.
 ::
 ::  v3.6: rewritten with NO parenthesized blocks and saved with CRLF

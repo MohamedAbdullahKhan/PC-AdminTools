@@ -1,5 +1,16 @@
-PC Admin & Performance Tool -- PowerShell GUI Edition  (v3.9)
+PC Admin & Performance Tool -- PowerShell GUI Edition  (v3.10)
 ================================================================
+
+WHAT'S NEW IN v3.10
+  - FIX (security products): the v3.9 Target Status snapshot ran `vssadmin list
+    shadowstorage` and read Win32_ShadowCopy on the target, automatically. EDR/XDR
+    flagged that as shadow-copy tampering and isolated hosts. All shadow-copy /
+    VSS access has been REMOVED from the status panel. It is read-only and only
+    reads computer/OS facts, adapter IP/DNS, service count, disks, mapped
+    drives and reboot flags. The five VSS operations you pick by hand under
+    Remote Tools (report, delete x3, resize) still run vssadmin and WILL alert --
+    do not select them on monitored machines unless security has allow-listed you.
+  - (This edition has no web port; the Web edition is now fixed on 3030.)
 
 WHAT'S NEW IN v3.9
   - (This edition has no web port; the Web edition moved to 3041.)

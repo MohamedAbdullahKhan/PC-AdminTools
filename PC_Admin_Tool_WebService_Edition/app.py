@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ================================================================================
-  PC Admin & Performance Troubleshooting Tool  v3.8  — Web-Service Edition
+  PC Admin & Performance Troubleshooting Tool  v3.10  — Web-Service Edition
   © 2024-2026 Abdullah | All Rights Reserved
   Contact : abuabdullah.be@outlook.com
   Unauthorized copying, modification or redistribution is strictly prohibited.
@@ -184,7 +184,52 @@
          parity (see the PowerShell file header). No functional change in
          this file beyond the version, the port and the speed fix above.
 
-  v3.8 (port 3038 -> 3030):
+  v3.10 (EDR FIX + fixed port 3030):
+    FIX  EDR / XDR ALERT "shadow copy deletion" + host isolation. The v3.9 Target
+         Status snapshot ran `vssadmin list shadowstorage` and enumerated
+         Win32_ShadowCopy on the target -- automatically after Test Connection
+         and after every run. Security products treat that command pattern as
+         ransomware preparation. REMOVED: the status snapshot no longer touches
+         shadow copies / VSS in any way (the "VSS" line is gone from Target
+         details). It now only reads: computer/OS facts, adapter IP/DNS, services
+         count, disk size/free/type, mapped drives, pending-reboot flags.
+         Guard: verif20/test_no_edr_triggers.py fails the build if the automatic
+         status code ever again contains vss/shadow/wbadmin/bcdedit/wmic/delete.
+         NOTE: the five operations the USER selects by hand under Remote Tools
+         (VSS Storage Report, three Delete VSS ..., Resize VSS Storage) still run
+         vssadmin by design and WILL be flagged by EDR -- they were never run
+         automatically and are unchanged since v3.7/v3.8.
+    CHG  PORT IS NOW FIXED AT 3030 (standing rule from the owner; no more port
+         increments). Re-run install_service.bat as Administrator; bookmarks :3030.
+
+  v3.9 (port 3039 -> 3041; 3040 skipped -- it served the demo-site local preview):
+    NEW  TARGET STATUS PANEL (all three editions). A live "what is this PC right now"
+         view above the log, so you no longer have to run a report to see the
+         target's state. Two layers, both READ-ONLY:
+           ADMIN-SIDE (no login, cheap, repeatable): ping + WinRM TCP port + DNS
+             name -> IP + reverse name, from THIS machine. Shows "Link right now:
+             UP at <ip> (ping 2ms, WinRM port open)" or DOWN, and "Name resolves
+             to" with a STALE warning when the name still points at an old IP
+             that the target no longer reports. Tick "Live" to refresh every 5 s
+             (it also keeps updating while a run is in progress -- you can watch
+             the link flap during a network change).
+           SNAPSHOT (needs the credentials; one short read-only script): computer
+             name + domain/workgroup, adapter IP/mask/gateway/DNS and Static vs
+             DHCP, uptime (+ RESTART PENDING flag), services running/total, VSS
+             shadow copies + storage used/max, disk type (SSD/HDD) + free space,
+             mapped drives of signed-in users, OS/RAM/model, logged-on user.
+         The snapshot runs on "Refresh status", automatically after a successful
+         Test Connection, after every run finishes, and when "Live" sees the link
+         come back after being down. It is skipped (link/DNS keep updating) while
+         a run is active so it never opens a second WinRM session mid-task. Each
+         section of the script is independent: if one cannot be read (older
+         Windows, localized vssadmin text) the rest still shows, with a
+         "(partial)" note. Nothing on the target is changed.
+         Web edition: new endpoint POST /api/status (hostname validated against
+         the same allow-list as ping; credentials are used for that call only).
+         Also fixed: the PowerShell GUI heading said "85 operations" (it is 90).
+
+  v3.8 (port 3038 -> 3039):
     CHG  FINAL v3.8 DESIGN (supersedes the "detached" approach for network tasks):
          Set Static IP / Set DHCP / Flush DNS / Reset TCP-IP / adapter restarts run
          INLINE again exactly like v3.6 (the method that worked). A dropped
@@ -321,7 +366,7 @@ _stop_flag  = threading.Event()
 _run_lock   = threading.Lock()
 
 COPYRIGHT = (
-    "© 2024-2026 Abdullah | PC Admin & Performance Tool v3.8 | All Rights Reserved\n"
+    "© 2024-2026 Abdullah | PC Admin & Performance Tool v3.10 | All Rights Reserved\n"
     "Contact: abuabdullah.be@outlook.com | Unauthorized use or redistribution is prohibited."
 )
 
@@ -3224,7 +3269,7 @@ def validate_and_substitute(op, values):
 # ══════════════════════════════════════════════════════════════════════════════
 #  WINRM HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
-def make_session(hostname, username, password, transport="ntlm", fast=False):
+def make_session(hostname, username, password, transport="ntlm", fast=False, status=False):
     """
     Returns a pypsrp.client.Client -- a real PSRP (PowerShell Remoting
     Protocol) client, identical in spirit to what New-PSSession/
@@ -3260,6 +3305,9 @@ def make_session(hostname, username, password, transport="ntlm", fast=False):
     if fast:
         # Short timeouts for polling/reconnecting while the target's network may be down.
         kwargs.update(connection_timeout=10, read_timeout=30, operation_timeout=20)
+    if status:
+        # v3.9 Target Status snapshot: fail fast if unreachable, but allow the ~10 s script to finish.
+        kwargs.update(connection_timeout=10, read_timeout=45, operation_timeout=40)
     if transport == "basic":
         kwargs["encryption"] = "never"
     return Client(hostname, **kwargs)
@@ -4049,6 +4097,257 @@ def run_remote_ps(session, script, label=""):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  v3.9  TARGET STATUS PANEL
+# ══════════════════════════════════════════════════════════════════════════════
+# A live "what is this PC right now" view that sits above the log:
+#   * ADMIN-SIDE checks (no login needed, cheap, safe to repeat every few seconds):
+#     ping, WinRM TCP port, DNS name -> IP, reverse name.  Shows whether the target
+#     is UP at the address you typed and whether its NAME still points at an old IP.
+#   * WinRM SNAPSHOT (needs the credentials, read-only, one short script): computer
+#     name + domain, Ethernet/adapter IP-mask-gateway-DNS and static/DHCP mode, uptime,
+#     services running/total, disk type + free space,
+#     mapped drives of signed-in users, pending reboot, logged-on user.
+# Nothing here changes anything on the target.
+# v3.10 EDR RULE: this script must NEVER touch volume-snapshot / backup / recovery features
+# (EDR/XDR treat those as ransomware activity and isolate the host). Guarded by test_no_edr_triggers.py.
+STATUS_SCRIPT = r'''
+$ErrorActionPreference = 'SilentlyContinue'
+$ProgressPreference = 'SilentlyContinue'
+function Emit([string]$k, $v) { Write-Output ('PCAT_ST|' + $k + '|' + (([string]$v) -replace '[\r\n|]+', ' ')) }
+try {
+    $cs = Get-CimInstance Win32_ComputerSystem
+    $os = Get-CimInstance Win32_OperatingSystem
+    Emit 'name' $env:COMPUTERNAME
+    if ($cs.PartOfDomain) { Emit 'member' ('DOMAIN ' + $cs.Domain) } else { Emit 'member' ('WORKGROUP ' + $cs.Workgroup) }
+    Emit 'os' ($os.Caption + ' (build ' + $os.BuildNumber + ')')
+    Emit 'model' ($cs.Manufacturer + ' ' + $cs.Model)
+    Emit 'ram_gb' ([math]::Round($os.TotalVisibleMemorySize / 1MB, 1))
+    Emit 'uptime_s' ([int]((Get-Date) - $os.LastBootUpTime).TotalSeconds)
+    Emit 'logged_on' $cs.UserName
+} catch { Emit 'err_system' $_.Exception.Message }
+try {
+    foreach ($c in @(Get-NetIPConfiguration | Where-Object { $_.NetAdapter.Status -eq 'Up' -and $_.IPv4Address })) {
+        $ip = $c.IPv4Address[0]
+        $gw = ''; if ($c.IPv4DefaultGateway) { $gw = $c.IPv4DefaultGateway[0].NextHop }
+        $dns = (@((Get-DnsClientServerAddress -InterfaceIndex $c.InterfaceIndex -AddressFamily IPv4).ServerAddresses) -join ',')
+        $dh = (Get-NetIPInterface -InterfaceIndex $c.InterfaceIndex -AddressFamily IPv4).Dhcp
+        Emit 'net' ('{0};{1};{2};{3};{4};{5}' -f $c.InterfaceAlias, $ip.IPAddress, $ip.PrefixLength, $gw, $dns, $dh)
+    }
+} catch { Emit 'err_network' $_.Exception.Message }
+try {
+    $sv = @(Get-Service)
+    Emit 'svc' ('{0};{1}' -f @($sv | Where-Object { $_.Status -eq 'Running' }).Count, $sv.Count)
+} catch { Emit 'err_services' $_.Exception.Message }
+try {
+    $types = @(Get-PhysicalDisk | ForEach-Object { [string]$_.MediaType } | Where-Object { $_ } | Sort-Object -Unique)
+    Emit 'disk_types' ($types -join ',')
+    foreach ($d in @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3')) {
+        Emit 'disk' ('{0};{1};{2}' -f $d.DeviceID, [math]::Round($d.Size / 1GB, 1), [math]::Round($d.FreeSpace / 1GB, 1))
+    }
+} catch { Emit 'err_disks' $_.Exception.Message }
+try {
+    foreach ($k in @(Get-ChildItem Registry::HKEY_USERS)) {
+        $sid = $k.PSChildName
+        if ($sid -notmatch '^S-1-5-21-[\d-]+$') { continue }
+        $acct = $sid
+        try { $acct = (New-Object Security.Principal.SecurityIdentifier $sid).Translate([Security.Principal.NTAccount]).Value } catch {}
+        $nk = 'Registry::HKEY_USERS\' + $sid + '\Network'
+        if (Test-Path $nk) {
+            foreach ($d in @(Get-ChildItem $nk)) {
+                Emit 'drive' ('{0};{1}:;{2}' -f $acct, $d.PSChildName.ToUpper(), (Get-ItemProperty $d.PSPath).RemotePath)
+            }
+        }
+    }
+} catch { Emit 'err_drives' $_.Exception.Message }
+try {
+    $pr = (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
+          (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
+          ($null -ne (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations)
+    Emit 'pending_reboot' $pr
+} catch { Emit 'err_pending' $_.Exception.Message }
+Emit 'done' '1'
+'''
+
+
+def parse_status_output(text):
+    """Turn the 'PCAT_ST|key|value' lines printed by STATUS_SCRIPT into a dict."""
+    d = {"net": [], "disks": [], "drives": [], "errors": []}
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line.startswith("PCAT_ST|"):
+            continue
+        parts = line.split("|", 2)
+        if len(parts) < 3:
+            continue
+        k, v = parts[1], parts[2]
+        if k == "net":
+            f = (v.split(";") + [""] * 6)[:6]
+            d["net"].append({"alias": f[0], "ip": f[1], "prefix": f[2], "gw": f[3],
+                             "dns": [x for x in f[4].split(",") if x], "mode": ("DHCP" if f[5].lower() == "enabled" else "Static")})
+        elif k == "svc":
+            f = (v.split(";") + ["0", "0"])[:2]
+            d["svc"] = (int(f[0] or 0), int(f[1] or 0))
+        elif k == "disk":
+            f = (v.split(";") + ["", "", ""])[:3]
+            d["disks"].append({"id": f[0], "total": f[1], "free": f[2]})
+        elif k == "drive":
+            f = (v.split(";") + ["", "", ""])[:3]
+            d["drives"].append({"user": f[0], "letter": f[1], "share": f[2]})
+        elif k.startswith("err_"):
+            d["errors"].append(k[4:] + ": " + v)
+        else:
+            d[k] = v
+    return d
+
+
+def status_admin_side(host):
+    """Cheap checks from THIS machine: DNS + ping + WinRM port. Never raises."""
+    out = {"host": host, "resolved": None, "reverse": None, "target_ip": None,
+           "ping": False, "rtt": None, "ttl": None, "winrm": False, "at": time.strftime("%H:%M:%S")}
+    try:
+        if not _HOST_RE.match(host or ""):
+            out["error"] = "invalid host"
+            return out
+        if _is_ipv4(host):
+            r = _resolve_safely(socket.gethostbyaddr, host)
+            out["reverse"] = r[0] if r and r[0] and r[0].lower() != host else None
+            out["target_ip"] = host
+        else:
+            out["resolved"] = _resolve_safely(socket.gethostbyname, host)
+            out["target_ip"] = out["resolved"]
+        if out["target_ip"]:
+            det = _probe_detail(out["target_ip"])
+            out.update({"ping": det["ping"], "rtt": det["rtt"], "ttl": det["ttl"], "winrm": det["winrm"]})
+    except Exception as e:
+        out["error"] = str(e)
+    return out
+
+
+def status_deep(host, username, password, transport):
+    """Read-only WinRM snapshot. Returns (dict_or_None, error_text_or_None)."""
+    try:
+        sess = make_session(host, username, password, transport, status=True)
+        stdout, stderr, ok = run_remote_ps(sess, STATUS_SCRIPT)
+        d = parse_status_output(stdout)
+        if d.get("done") == "1" or d.get("name"):
+            return d, None
+        e = (stderr or "").strip()
+        if e.startswith("CRED_ERR"):
+            return None, "Authentication failed -- check username / password / transport"
+        if e.startswith("TIMEOUT_ERR"):
+            return None, "The snapshot timed out (target busy or network changing)"
+        if e.startswith("TRANSPORT_ERR"):
+            return None, "WinRM not reachable right now (" + e.split(":", 1)[-1][:120] + ")"
+        return None, (e[:160] or "No data returned")
+    except AuthenticationError:
+        return None, "Authentication failed -- check username / password / transport"
+    except Exception as e:
+        return None, "Snapshot failed: " + str(e)[:160]
+
+
+def _fmt_uptime(sec):
+    try:
+        s = int(sec)
+    except Exception:
+        return "-"
+    return f"{s // 86400}d {s % 86400 // 3600}h {s % 3600 // 60}m"
+
+
+def build_status(host, admin, deep=None, deep_err=None, busy=False, snap=None):
+    """Format the panel. Returns {'chips': [{'label','text','level'}], 'detail': str, 'link_up': bool}.
+    snap = (epoch_seconds, "HH:MM:SS") when `deep` is an OLDER snapshot being re-shown (link + DNS are still live)."""
+    chips = []
+    ips = [n["ip"] for n in (deep or {}).get("net", [])]
+    # Computer
+    if deep and deep.get("name"):
+        chips.append({"label": "Computer", "text": f"{deep['name']} - {deep.get('member', '')}", "level": ""})
+    else:
+        chips.append({"label": "Computer", "text": host, "level": ""})
+    # Network
+    nets = (deep or {}).get("net", [])
+    if nets:
+        pri = next((n for n in nets if n["ip"] == admin.get("target_ip")), nets[0])
+        extra = f"  (+{len(nets) - 1} more)" if len(nets) > 1 else ""
+        chips.append({"label": f"Network ({pri['alias']})", "text": f"{pri['ip']} /{pri['prefix']} ({pri['mode']}){extra}", "level": ""})
+    else:
+        chips.append({"label": "Network", "text": "press Refresh status (needs login)", "level": ""})
+    # Link
+    ti = admin.get("target_ip")
+    if admin.get("error"):
+        chips.append({"label": "Link right now", "text": admin["error"], "level": "err"})
+        link_up = False
+    elif not ti:
+        chips.append({"label": "Link right now", "text": "unknown - the name does not resolve", "level": "err"})
+        link_up = False
+    elif admin["ping"] or admin["winrm"]:
+        bits = []
+        if admin["ping"]:
+            bits.append("ping" + (f" {admin['rtt']:g}ms" if admin["rtt"] is not None else " OK"))
+        else:
+            bits.append("no ping")
+        bits.append("WinRM port open" if admin["winrm"] else "WinRM port closed")
+        chips.append({"label": "Link right now", "text": f"UP at {ti} ({', '.join(bits)})", "level": "ok" if admin["winrm"] else "warn"})
+        link_up = True
+    else:
+        chips.append({"label": "Link right now", "text": f"DOWN at {ti} (no ping, WinRM port closed)", "level": "err"})
+        link_up = False
+    # DNS
+    if admin.get("resolved"):
+        stale = bool(ips) and admin["resolved"] not in ips
+        txt = f"{host.lower()} -> {admin['resolved']}" + (f"  (STALE: target reports {', '.join(ips)})" if stale else "")
+        chips.append({"label": "Name resolves to", "text": txt, "level": "warn" if stale else ""})
+    elif _is_ipv4(host):
+        chips.append({"label": "Name resolves to", "text": (f"reverse DNS: {admin['reverse']}" if admin.get("reverse") else "typed IP (no reverse name)"), "level": ""})
+    else:
+        chips.append({"label": "Name resolves to", "text": "NOTHING (DNS has no answer)", "level": "err"})
+    # Uptime / pending reboot
+    if deep and deep.get("uptime_s") is not None:
+        pr = str(deep.get("pending_reboot", "")).lower() == "true"
+        up_s = deep["uptime_s"]
+        if snap:
+            try:
+                up_s = int(up_s) + int(time.time() - snap[0])
+            except Exception:
+                pass
+        chips.append({"label": "Uptime", "text": _fmt_uptime(up_s) + ("  - RESTART PENDING" if pr else "") + (f"  (snapshot {snap[1]})" if snap else ""), "level": "warn" if pr else ""})
+    else:
+        chips.append({"label": "Uptime", "text": "-", "level": ""})
+    chips.append({"label": "Checked", "text": admin.get("at", ""), "level": ""})
+    # Details
+    L = []
+    if deep and snap:
+        L.append(f"(snapshot taken {snap[1]} - link and DNS above are live; press Refresh status to re-read)")
+    if deep:
+        for n in nets:
+            L.append(f"Adapter     : {n['alias']}  {n['ip']}/{n['prefix']}  gw {n['gw'] or '-'}  dns {', '.join(n['dns']) or '-'}  [{n['mode']}]")
+        if not nets:
+            L.append("Adapter     : no active IPv4 adapter reported")
+        if deep.get("svc"):
+            L.append(f"Services    : {deep['svc'][0]} running / {deep['svc'][1]} total")
+        if deep.get("disk_types") is not None:
+            L.append(f"Disk type   : {deep['disk_types'] or 'unknown'}")
+        for dk in deep.get("disks", []):
+            L.append(f"Drive {dk['id']:<5}: {dk['free']} GB free of {dk['total']} GB")
+        if deep.get("drives"):
+            for dr in deep["drives"]:
+                L.append(f"Mapped drv  : {dr['user']}  {dr['letter']}  {dr['share']}")
+        else:
+            L.append("Mapped drv  : none (for signed-in users)")
+        L.append(f"OS          : {deep.get('os', '-')}   RAM {deep.get('ram_gb', '-')} GB   {deep.get('model', '')}")
+        L.append(f"Logged on   : {deep.get('logged_on') or '(nobody at the console)'}")
+        for e in deep.get("errors", []):
+            L.append("(partial) " + e)
+    elif busy:
+        L.append("A run is in progress - the login snapshot is paused; link and DNS keep updating.")
+    elif deep_err:
+        L.append("Snapshot not available: " + deep_err)
+    else:
+        L.append("Press 'Refresh status' (with username + password filled in) for the full snapshot.")
+    return {"chips": chips, "detail": "\n".join(L), "link_up": link_up, "deep_ok": bool(deep), "deep_error": deep_err, "busy": busy, "snap_at": (snap[1] if snap else None)}
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  FLASK ROUTES
 # ══════════════════════════════════════════════════════════════════════════════
 @app.route("/")
@@ -4102,6 +4401,42 @@ def test_connection():
                             "msg": f"Cannot reach WinRM on {hostname}:5985.\n"
                                    f"Run on target (Admin): Enable-PSRemoting -Force"})
         return jsonify({"status": "error", "msg": f"Connection error: {err}"})
+
+
+_STATUS_CACHE = {}
+
+
+@app.route("/api/status", methods=["POST"])
+def api_status():
+    """v3.9 Target Status panel. Admin-side checks always; read-only WinRM snapshot when deep=true."""
+    data      = request.json or {}
+    hostname  = (data.get("hostname") or "").strip()
+    username  = (data.get("username") or "").strip()
+    password  = data.get("password") or ""
+    transport = data.get("transport", "ntlm")
+    if transport not in ("ntlm", "basic", "kerberos", "credssp"):
+        transport = "ntlm"
+    if not hostname or not _HOST_RE.match(hostname):
+        return jsonify({"status": "error", "msg": "Enter a valid hostname or IP address"})
+    admin = status_admin_side(hostname)
+    deep, derr, busy, snap = None, None, False, None
+    key = hostname.lower()
+    if data.get("deep"):
+        if not username or not password:
+            derr = "Enter username and password for the login snapshot"
+        elif _run_lock.locked():
+            busy = True                       # a batch is running: do not open a second WinRM session
+        else:
+            deep, derr = status_deep(hostname, username, password, transport)
+            if deep:
+                _STATUS_CACHE[key] = (time.time(), time.strftime("%H:%M:%S"), deep)
+    if deep is None and key in _STATUS_CACHE:
+        ts, hms, cached = _STATUS_CACHE[key]  # keep showing the last snapshot while only link + DNS are refreshed
+        if time.time() - ts < 6 * 3600:
+            deep, snap = cached, (ts, hms)
+    res = build_status(hostname, admin, deep, derr, busy, snap)
+    res["status"] = "ok"
+    return jsonify(res)
 
 
 @app.route("/api/run", methods=["POST"])
@@ -4171,7 +4506,7 @@ def run_tasks():
 
         header_txt = [
             "=" * 60,
-            f"  PC ADMIN & PERFORMANCE TOOL  v3.8  -- Web-Service Edition",
+            f"  PC ADMIN & PERFORMANCE TOOL  v3.10  -- Web-Service Edition",
             f"  {COPYRIGHT.splitlines()[0]}",
             "=" * 60,
             f"  Target   : {hostname}",
@@ -4486,7 +4821,7 @@ def _lan_ip():
 if __name__ == "__main__":
     lan_ip = _lan_ip()
     print("=" * 60)
-    print("  PC Admin & Performance Tool  v3.8  -- Web-Service Edition")
+    print("  PC Admin & Performance Tool  v3.10  -- Web-Service Edition")
     print(f"  {COPYRIGHT.splitlines()[0]}")
     print("=" * 60)
     print(f"  Local   : http://localhost:{SERVICE_PORT}")

@@ -1,12 +1,40 @@
-PC Admin & Performance Tool -- Web-Service Edition  (v3.8)
+PC Admin & Performance Tool -- Web-Service Edition  (v3.10)
 ================================================================
-Runs as a standalone network service on PORT 3039. Once started on a
+Runs as a standalone network service on PORT 3030. Once started on a
 host, anyone on the same allowed subnet can open it from a browser at:
 
-    http://<hosting-machine-IP>:3039
+    http://<hosting-machine-IP>:3030
 
 All logs and session files are written LOCALLY on the hosting machine
 (the "logs" folder next to app.py) -- not on the client's browser/PC.
+
+WHAT'S NEW IN v3.10
+  - FIX (security products): the v3.9 Target Status snapshot ran `vssadmin list
+    shadowstorage` and read Win32_ShadowCopy on the target, automatically. EDR/XDR
+    flagged that as shadow-copy tampering and isolated hosts. All shadow-copy /
+    VSS access has been REMOVED from the status panel. It is read-only and only
+    reads computer/OS facts, adapter IP/DNS, service count, disks, mapped
+    drives and reboot flags. The five VSS operations you pick by hand under
+    Remote Tools (report, delete x3, resize) still run vssadmin and WILL alert --
+    do not select them on monitored machines unless security has allow-listed you.
+  - PORT IS NOW FIXED AT 3030 (always). Re-run install_service.bat as
+    Administrator; update bookmarks to :3030. Leftover firewall rules from
+    3031-3041 are removed automatically by install_service/uninstall_service.
+
+WHAT'S NEW IN v3.9
+  - PORT CHANGED: 3039 -> 3041 (3040 is skipped; it was used for the demo-site
+    preview). Firewall rules for 3030-3041 are cleaned/recreated by
+    install_service.bat; update bookmarks to :3041.
+  - NEW: TARGET STATUS panel above the log. Shows, live, whether the target is UP
+    (ping + WinRM port), which IP its NAME resolves to (with a STALE warning when
+    DNS still points at an old IP), its computer name/domain, adapter IP/mask/
+    gateway/DNS and Static-vs-DHCP, uptime (+ restart pending), services, VSS
+    shadow copies, SSD/HDD + free space, mapped drives and the logged-on user.
+    "Refresh status" reads the full snapshot (read-only, needs the login); tick
+    "Live" to refresh link + DNS every 5 s. It refreshes by itself after Test
+    Connection succeeds and after every run, and stays out of the way while a
+    run is active. Click "Target details" for the full list. Same panel in all
+    three editions. Nothing on the target is changed.
 
 WHAT'S NEW IN v3.8
   - PORT CHANGED AGAIN: 3038 -> 3039 (firewall rules for 3030-3039 are
@@ -266,7 +294,7 @@ WHAT'S NEW IN v3.0
 UPGRADING FROM AN OLDER INSTALL
   The Windows service installer and the firewall rule it creates are
   both named/scoped for the OLD port -- this matters whether you're
-  coming from port 3030, 3031, 3032, 3033, 3034 or 3035.
+  coming from port 3030, 3031 ... 3041.
   Before installing this version over an old one:
     1. On the OLD install folder, run uninstall_service.bat (or, on
        Linux, stop the old systemd unit / kill the old process). This
@@ -276,9 +304,9 @@ UPGRADING FROM AN OLDER INSTALL
     2. Copy THIS folder to the host (a fresh folder is fine, or overwrite
        the old one) and run install_service.bat / install_and_run.sh as
        normal -- it removes any previous copy of the service, opens
-       port 3039, and registers the service under the same service
+       port 3030, and registers the service under the same service
        name, now pointed at the new port.
-    3. Update any saved bookmarks / links to use :3039.
+    3. Update any saved bookmarks / links to use :3030.
   Skipping step 1 just leaves a harmless unused firewall rule open on
   the old port -- it won't conflict with the new one, but you should
   still close it if this machine is internet-facing.
@@ -323,7 +351,7 @@ WORKS ON
   - The TARGET machines it manages: must be Windows, with WinRM enabled
     (run once on each target, as Admin: Enable-PSRemoting -Force).
   - Any CLIENT browser on the same subnet, no install needed there --
-    just a browser pointed at http://<hosting-IP>:3039
+    just a browser pointed at http://<hosting-IP>:3030
 
 HOW TO RUN -- Windows / Windows Server  (installs as a real Service)
   1. Copy this folder to the machine that will host the service, e.g.
@@ -332,12 +360,12 @@ HOW TO RUN -- Windows / Windows Server  (installs as a real Service)
      This installs dependencies, removes any previous version of the
      service and its old firewall rules, registers "PC Admin &
      Performance Tool - Web Service" in services.msc with Startup
-     Type = Automatic, opens firewall port 3039, and starts it.
+     Type = Automatic, opens firewall port 3030, and starts it.
   3. Open services.msc to confirm -- you'll see it listed, Status
      "Running", Startup type "Automatic". It will keep running in the
      background (no console window) and restart automatically on reboot.
   4. Share the URL with anyone on the same subnet:
-        http://<this-machine-IP-or-name>:3039
+        http://<this-machine-IP-or-name>:3030
   5. To stop/remove it later, run uninstall_service.bat.
 
   Prefer to just test it first without installing a service? Run
@@ -354,12 +382,12 @@ HOW TO RUN -- Linux
      pcadmintool.service.template.
 
 FIREWALL
-  Make sure TCP port 3039 is allowed inbound on the hosting machine so
+  Make sure TCP port 3030 is allowed inbound on the hosting machine so
   other hosts on the subnet can reach it. install_service.bat attempts
   this automatically on Windows via netsh; on Linux, open it with your
   distro's firewall tool, e.g.:
-    sudo ufw allow 3039/tcp
-    sudo firewall-cmd --add-port=3039/tcp --permanent && sudo firewall-cmd --reload
+    sudo ufw allow 3030/tcp
+    sudo firewall-cmd --add-port=3030/tcp --permanent && sudo firewall-cmd --reload
 
 LOGS & FILES
   Every run writes: logs/AdminTool_<hostname>_<timestamp>.log

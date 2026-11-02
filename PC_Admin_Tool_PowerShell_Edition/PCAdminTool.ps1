@@ -1,6 +1,6 @@
 ﻿#Requires -Version 5.0
 # ============================================================
-#  PC Admin & Performance Tool  v3.9 -- PowerShell GUI Edition
+#  PC Admin & Performance Tool  v3.10 -- PowerShell GUI Edition
 #  (c) 2024-2026 Abdullah | All Rights Reserved
 #  Contact: abuabdullah.be@outlook.com
 # ============================================================
@@ -10,8 +10,8 @@ try { [System.Windows.Forms.Application]::EnableVisualStyles() } catch {}
 try { [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false) } catch {}
 
 $COPY  = "(c) 2024-2026 Abdullah  |  All Rights Reserved  |  abuabdullah.be@outlook.com"
-$COPYL = "(c) 2024-2026 Abdullah  |  PC Admin & Performance Tool v3.9  |  All Rights Reserved  |  abuabdullah.be@outlook.com"
-$VER   = "v3.9  PowerShell GUI Edition"
+$COPYL = "(c) 2024-2026 Abdullah  |  PC Admin & Performance Tool v3.10  |  All Rights Reserved  |  abuabdullah.be@outlook.com"
+$VER   = "v3.10  PowerShell GUI Edition"
 $DIR   = if ($MyInvocation.MyCommand.Path) { Split-Path $MyInvocation.MyCommand.Path } else { $PWD.Path }
 $LOGD  = Join-Path $DIR "PC_Admin_Logs"
 if (-not (Test-Path $LOGD)) { New-Item -ItemType Directory -Path $LOGD | Out-Null }
@@ -2103,7 +2103,7 @@ function UpdCount {
 # FORM
 # ============================================================
 $F=New-Object System.Windows.Forms.Form
-$F.Text="PC Admin & Performance Tool  v3.9  --  (c) 2024-2026 Abdullah"
+$F.Text="PC Admin & Performance Tool  v3.10  --  (c) 2024-2026 Abdullah"
 $F.ClientSize=New-Object System.Drawing.Size(1380,860)
 $F.MinimumSize=New-Object System.Drawing.Size(1100,680)
 $F.BackColor=$BG;$F.StartPosition="CenterScreen"
@@ -2242,7 +2242,7 @@ for($i=0;$i -lt 6;$i++){
     $cp.Controls.Add($c1);$cp.Controls.Add($c2);$PTS.Controls.Add($cp)
     $Script:TsCells+=,@{Cap=$c1;Val=$c2}
 }
-$Script:BtnTsDet=New-Object System.Windows.Forms.Button;$Script:BtnTsDet.Text="> Target details (adapters, services, VSS, disks, mapped drives)"
+$Script:BtnTsDet=New-Object System.Windows.Forms.Button;$Script:BtnTsDet.Text="> Target details (adapters, services, disks, mapped drives)"
 $Script:BtnTsDet.SetBounds(4,178,410,22);$Script:BtnTsDet.BackColor=$BG;$Script:BtnTsDet.ForeColor=$CYAN
 $Script:BtnTsDet.FlatStyle="Flat";$Script:BtnTsDet.FlatAppearance.BorderSize=0;$Script:BtnTsDet.Font=GF "Segoe UI" 8 -B
 $Script:BtnTsDet.TextAlign="MiddleLeft";$Script:BtnTsDet.Cursor=[System.Windows.Forms.Cursors]::Hand
@@ -2466,18 +2466,6 @@ try {
     Emit 'svc' ('{0};{1}' -f @($sv | Where-Object { $_.Status -eq 'Running' }).Count, $sv.Count)
 } catch { Emit 'err_services' $_.Exception.Message }
 try {
-    Emit 'vss_copies' @(Get-CimInstance Win32_ShadowCopy).Count
-    $vo = (& vssadmin list shadowstorage 2>$null) | Out-String
-    foreach ($blk in ($vo -split 'Shadow Copy Storage association')) {
-        if ($blk -match 'For volume:\s*\((\w):\)') {
-            $vl = $Matches[1]; $u = ''; $m = ''
-            if ($blk -match 'Used Shadow Copy Storage space:\s*([^\r\n]+)') { $u = $Matches[1].Trim() }
-            if ($blk -match 'Maximum Shadow Copy Storage space:\s*([^\r\n]+)') { $m = $Matches[1].Trim() }
-            Emit ('vss_' + $vl) ($u + ';' + $m)
-        }
-    }
-} catch { Emit 'err_vss' $_.Exception.Message }
-try {
     $types = @(Get-PhysicalDisk | ForEach-Object { [string]$_.MediaType } | Where-Object { $_ } | Sort-Object -Unique)
     Emit 'disk_types' ($types -join ',')
     foreach ($d in @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3')) {
@@ -2509,7 +2497,7 @@ Emit 'done' '1'
 $Script:TsCache=@{};$Script:TsBusy=$false;$Script:TsJob=$null;$Script:TsDeep=$false;$Script:TsPrevUp=$null;$Script:TsHost=""
 
 function ConvertFrom-StatusText([string]$text){
-    $d=@{Net=@();Disks=@();Drives=@();Vss=@{};Errors=@();Svc=$null;Name=$null;Member="";Os="-";Model="";Ram="-";Uptime=$null;LoggedOn="";VssCopies=$null;DiskTypes=$null;Pending=""}
+    $d=@{Net=@();Disks=@();Drives=@();Errors=@();Svc=$null;Name=$null;Member="";Os="-";Model="";Ram="-";Uptime=$null;LoggedOn="";DiskTypes=$null;Pending=""}
     foreach($ln in ($text -split "`r?`n")){
         $line=$ln.Trim()
         if(-not $line.StartsWith('PCAT_ST|')){continue}
@@ -2525,8 +2513,6 @@ function ConvertFrom-StatusText([string]$text){
         elseif($k -eq 'svc'){$f=@($v.Split(';'))+@('0','0');$d.Svc=@([int]$f[0],[int]$f[1])}
         elseif($k -eq 'disk'){$f=@($v.Split(';'))+@('','','');$d.Disks+=,@{Id=$f[0];Total=$f[1];Free=$f[2]}}
         elseif($k -eq 'drive'){$f=@($v.Split(';'))+@('','','');$d.Drives+=,@{User=$f[0];Letter=$f[1];Share=$f[2]}}
-        elseif($k -eq 'vss_copies'){$d.VssCopies=$v}
-        elseif($k.StartsWith('vss_')){$f=@($v.Split(';'))+@('','');$d.Vss[$k.Substring(4).ToUpper()]=@{Used=$f[0];Max=$f[1]}}
         elseif($k.StartsWith('err_')){$d.Errors+=($k.Substring(4)+': '+$v)}
         elseif($k -eq 'name'){$d.Name=$v}
         elseif($k -eq 'member'){$d.Member=$v}
@@ -2586,11 +2572,6 @@ function Build-StatusView([string]$hostName,$admin,$deep,[string]$deepErr,[bool]
         foreach($n in $deep.Net){[void]$L.Add(("Adapter     : {0}  {1}/{2}  gw {3}  dns {4}  [{5}]" -f $n.Alias,$n.Ip,$n.Prefix,$(if($n.Gw){$n.Gw}else{'-'}),$(if($n.Dns.Count){$n.Dns -join ', '}else{'-'}),$n.Mode))}
         if($deep.Net.Count -eq 0){[void]$L.Add("Adapter     : no active IPv4 adapter reported")}
         if($deep.Svc){[void]$L.Add(("Services    : {0} running / {1} total" -f $deep.Svc[0],$deep.Svc[1]))}
-        if($null -ne $deep.VssCopies){
-            $vs=@($deep.Vss.Keys|Sort-Object|ForEach-Object{"{0}: used {1}, max {2}" -f $_,$(if($deep.Vss[$_].Used){$deep.Vss[$_].Used}else{'?'}),$(if($deep.Vss[$_].Max){$deep.Vss[$_].Max}else{'?'})}) -join '; '
-            $vt="VSS         : $($deep.VssCopies) shadow copies";if($vs){$vt+="  ($vs)"}
-            [void]$L.Add($vt)
-        }
         if($null -ne $deep.DiskTypes){[void]$L.Add("Disk type   : "+$(if($deep.DiskTypes){$deep.DiskTypes}else{'unknown'}))}
         foreach($dk in $deep.Disks){[void]$L.Add(("Drive {0,-5}: {1} GB free of {2} GB" -f $dk.Id,$dk.Free,$dk.Total))}
         if($deep.Drives.Count){foreach($dr in $deep.Drives){[void]$L.Add(("Mapped drv  : {0}  {1}  {2}" -f $dr.User,$dr.Letter,$dr.Share))}}
@@ -2707,8 +2688,8 @@ $Script:ChkLive.Add_CheckedChanged({
 $Script:TxH.Add_Leave({$Script:TsPrevUp=$null;Start-StatusRefresh $false})
 $Script:BtnTsDet.Add_Click({
     $PTD.Visible=(-not $PTD.Visible)
-    if($PTD.Visible){$Script:BtnTsDet.Text="v Target details (adapters, services, VSS, disks, mapped drives)"}
-    else{$Script:BtnTsDet.Text="> Target details (adapters, services, VSS, disks, mapped drives)"}
+    if($PTD.Visible){$Script:BtnTsDet.Text="v Target details (adapters, services, disks, mapped drives)"}
+    else{$Script:BtnTsDet.Text="> Target details (adapters, services, disks, mapped drives)"}
 })
 
 # TEST CONNECTION
@@ -2798,6 +2779,23 @@ $BtnStop.Add_Click({$SH.Stop=$true;LogIt "  ! STOP requested -- finishing curren
 #  SystemRoot, like the other editions), high_perf (now prints the ACTUAL active
 #  power scheme afterwards instead of assuming success). The launcher
 #  (Run-AdminTool.bat) is also rewritten -- see the README.
+#   v3.10 (EDR FIX; Web edition now on fixed port 3030):
+#     FIX  EDR / XDR ALERT "shadow copy deletion" + host isolation. The v3.9 Target
+#          Status snapshot ran `vssadmin list shadowstorage` and enumerated
+#          Win32_ShadowCopy on the target -- automatically after Test Connection
+#          and after every run. Security products treat that command pattern as
+#          ransomware preparation. REMOVED: the status snapshot no longer touches
+#          shadow copies / VSS in any way (the "VSS" line is gone from Target
+#          details). It now only reads: computer/OS facts, adapter IP/DNS, services
+#          count, disk size/free/type, mapped drives, pending-reboot flags.
+#          Guard: verif20/test_no_edr_triggers.py fails the build if the automatic
+#          status code ever again contains vss/shadow/wbadmin/bcdedit/wmic/delete.
+#          NOTE: the five operations the USER selects by hand under Remote Tools
+#          (VSS Storage Report, three Delete VSS ..., Resize VSS Storage) still run
+#          vssadmin by design and WILL be flagged by EDR -- they were never run
+#          automatically and are unchanged since v3.7/v3.8.
+#     CHG  PORT IS NOW FIXED AT 3030 (standing rule from the owner; no more port
+#          increments). Re-run install_service.bat as Administrator; bookmarks :3030.
 #   v3.9 (Web edition: port 3039 -> 3041; this edition has no port):
 #     NEW  TARGET STATUS PANEL (all three editions). A live "what is this PC right now"
 #          view above the log, so you no longer have to run a report to see the
@@ -3066,7 +3064,7 @@ $BtnRun.Add_Click({
         @{Id=$_.Id;L=$_.L;Cat=$_.Cat;Ds=$_.Ds;CT=$ctxt;D=$_.D;NC=[bool]$_.NC;LG=[bool]$_.LG;P=[bool]$_.P;MON=[bool]$_.MON;PV=$vals[$_.Id]}
     }
     $SH.OD=$od;$SH.HN=$hn;$SH.UN=$un;$SH.PW=$pw;$SH.TR=$tr;$SH.LF=$Script:LogFile;$SH.CP=$COPY
-    $hdrs=@("="*55,"  PC ADMIN & PERFORMANCE TOOL  v3.9 -- PowerShell Edition","  $COPYL","="*55,
+    $hdrs=@("="*55,"  PC ADMIN & PERFORMANCE TOOL  v3.10 -- PowerShell Edition","  $COPYL","="*55,
        "  Target   : $hn","  Username : $un  [$tr]","  Date/Time: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")",
        "  Tasks    : $($sel.Count) selected","  Log File : $(Split-Path $Script:LogFile -Leaf)","="*55,"")
     foreach($hline in $hdrs){
@@ -3677,7 +3675,7 @@ $F.Add_Shown({
 
     $w=$PA.Width;$BtnLogs.Left=$w-104;$Script:LblCnt.Left=[math]::Max(640,$w-312)
     TabClk "all"
-    LogIt "  PC Admin & Performance Tool  v3.9 -- PowerShell GUI Edition" "hdr"
+    LogIt "  PC Admin & Performance Tool  v3.10 -- PowerShell GUI Edition" "hdr"
     LogIt "  $COPY" "dim";LogIt ("  "+"-"*50) "dim"
     LogIt "  $($Ops.Count) operations ready across $(@($Ops | ForEach-Object { $_.Cat } | Select-Object -Unique).Count) categories" "info"
     LogIt "  Enter Hostname/IP -- Test Connection -- Select tasks -- Perform" "dim"

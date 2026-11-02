@@ -101,12 +101,24 @@
   .l-dim{color:var(--txdd);}
   .l-task{color:var(--txtb);font-weight:700;}
   .l-out,.l-output{color:#8ab0cc;}
+  .tsbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 6px;font-size:11px;color:var(--txdd);}
+  .tsbar b{color:var(--txtb);letter-spacing:.05em;font-size:11px;}
+  .tsbar label{display:inline-flex;align-items:center;gap:4px;margin:0;font-weight:600;color:var(--txt);}
+  .tsbar input{width:auto;margin:0;}
+  .tstat{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px;margin-bottom:8px;}
+  .tstat div{background:var(--pnl);border:1px solid var(--bdr);border-radius:6px;padding:6px 9px;min-width:0;}
+  .tstat small{display:block;color:var(--txdd);font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;}
+  .tstat b{display:block;color:var(--txtb);font-size:12px;overflow-wrap:anywhere;}
+  .tstat b.ok{color:var(--grn);} .tstat b.warn{color:var(--yel);} .tstat b.err{color:var(--red);}
+  details.tsd{margin-bottom:8px;background:var(--pnl);border:1px solid var(--bdr);border-radius:6px;padding:5px 10px;font-size:12px;}
+  details.tsd summary{cursor:pointer;color:var(--txtb);font-weight:600;}
+  details.tsd pre{margin:8px 0 2px;font:11.5px/1.45 Consolas,monospace;color:#8ab0cc;white-space:pre-wrap;max-height:170px;overflow:auto;}
 </style>
 </head>
 <body>
 <header>
   <h1>PC ADMIN &amp; PERFORMANCE TOOL</h1>
-  <span class="ver">v3.8 &middot; Web-Service Edition &middot; port 3030</span>
+  <span class="ver">v3.10 &middot; Web-Service Edition &middot; port 3030</span>
   <span class="cp">{{ copyright }}</span>
 </header>
 
@@ -153,6 +165,14 @@
       <span><span class="dot" id="dot">&#9679;</span> <span id="stat">Idle</span></span>
       <span id="taskline"></span>
     </div>
+    <div class="tsbar">
+      <b>TARGET STATUS</b>
+      <button class="btn-ghost" id="btnTs" onclick="refreshStatus(true)">Refresh status</button>
+      <label><input type="checkbox" id="tsLive" onchange="toggleLive()"> Live (link + DNS every 5 s)</label>
+      <span id="tsNote">Enter a hostname / IP to see its status.</span>
+    </div>
+    <div class="tstat" id="tstat"></div>
+    <details class="tsd"><summary>Target details (adapters, services, disks, mapped drives)</summary><pre id="tsDetail">Press "Refresh status" with username + password filled in.</pre></details>
     <div id="log"></div>
     <div class="panel" id="logsPanel" style="display:none;max-height:160px;overflow-y:auto;margin-top:8px;"></div>
   </div>
@@ -348,6 +368,7 @@ async function testConnection(){
       body: JSON.stringify({hostname, username, password, transport})});
     const data = await r.json();
     logLine(data.status === 'success' ? 'ok' : 'err', '  ' + data.msg);
+    if(data.status === 'success') refreshStatus(true);
     alert(data.msg);
   }catch(e){ alert('Request failed: ' + e); }
   btn.disabled = false; btn.textContent = 'Test Connection';
@@ -433,6 +454,7 @@ async function runTasks(){
   document.getElementById('btnRun').disabled = false;
   document.getElementById('btnStop').disabled = true;
   document.getElementById('dot').className = 'dot';
+  setTimeout(() => refreshStatus(true), 2500);
 }
 
 function handleEvent(ev){
@@ -469,6 +491,48 @@ async function loadLogs(){
         ${l.name} &middot; ${l.size} bytes &middot; ${l.modified}</div>`).join('')
       : '<div style="font-size:11px;color:var(--txdd)">No logs yet</div>');
 }
+
+// ---- v3.9 Target Status panel -------------------------------------------------------------
+let tsBusy = false, tsTimer = null, tsPrevUp = null;
+function renderStatus(d){
+  const box = document.getElementById('tstat'); box.textContent = '';
+  (d.chips || []).forEach(c => {
+    const cell = document.createElement('div');
+    const s = document.createElement('small'); s.textContent = c.label;
+    const b = document.createElement('b'); b.textContent = c.text; if(c.level) b.className = c.level;
+    cell.appendChild(s); cell.appendChild(b); box.appendChild(cell);
+  });
+  document.getElementById('tsDetail').textContent = d.detail || '';
+  document.getElementById('tsNote').textContent = d.busy ? 'Run in progress - login snapshot paused.'
+      : (d.deep_error ? d.deep_error : (d.deep_ok ? 'Snapshot read OK.' : ''));
+}
+async function refreshStatus(deep){
+  const hostname = document.getElementById('hostname').value.trim();
+  if(!hostname){ document.getElementById('tstat').textContent = ''; document.getElementById('tsNote').textContent = 'Enter a hostname / IP to see its status.'; return; }
+  if(tsBusy) return; tsBusy = true;
+  const btn = document.getElementById('btnTs'); if(deep){ btn.disabled = true; btn.textContent = 'Reading...'; }
+  try{
+    const r = await fetch('/api/status', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({hostname, username: document.getElementById('username').value.trim(),
+        password: document.getElementById('password').value, transport: document.getElementById('transport').value, deep: !!deep})});
+    const d = await r.json();
+    if(d.status !== 'ok'){ document.getElementById('tsNote').textContent = d.msg || 'Status error'; }
+    else{
+      renderStatus(d);
+      const wasDown = (tsPrevUp === false); tsPrevUp = d.link_up;
+      if(!deep && wasDown && d.link_up && !running){ tsBusy = false; setTimeout(() => refreshStatus(true), 1500); }
+    }
+  }catch(e){ document.getElementById('tsNote').textContent = 'Status request failed: ' + e; }
+  tsBusy = false; btn.disabled = false; btn.textContent = 'Refresh status';
+}
+function toggleLive(){
+  if(tsTimer){ clearInterval(tsTimer); tsTimer = null; }
+  if(document.getElementById('tsLive').checked){
+    refreshStatus(false);
+    tsTimer = setInterval(() => { if(!document.hidden) refreshStatus(false); }, 5000);
+  }
+}
+document.getElementById('hostname').addEventListener('change', () => { tsPrevUp = null; refreshStatus(false); });
 
 buildTabs();
 renderTasks();

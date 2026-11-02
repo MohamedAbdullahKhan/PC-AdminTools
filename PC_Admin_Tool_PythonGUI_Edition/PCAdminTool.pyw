@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ================================================================================
-  PC Admin & Performance Tool  v3.9  -- Native Python GUI Edition (Tkinter)
+  PC Admin & Performance Tool  v3.10  -- Native Python GUI Edition (Tkinter)
   (c) 2024-2026 Abdullah | All Rights Reserved
   Contact: abuabdullah.be@outlook.com
   Unauthorized copying, modification or redistribution is strictly prohibited.
@@ -74,6 +74,24 @@
   install_and_run.bat had that defect and is rewritten, and its title
   line no longer runs the word Performance as a command. See the README.
 
+  v3.10 (EDR FIX; Web edition now on fixed port 3030):
+    FIX  EDR / XDR ALERT "shadow copy deletion" + host isolation. The v3.9 Target
+         Status snapshot ran `vssadmin list shadowstorage` and enumerated
+         Win32_ShadowCopy on the target -- automatically after Test Connection
+         and after every run. Security products treat that command pattern as
+         ransomware preparation. REMOVED: the status snapshot no longer touches
+         shadow copies / VSS in any way (the "VSS" line is gone from Target
+         details). It now only reads: computer/OS facts, adapter IP/DNS, services
+         count, disk size/free/type, mapped drives, pending-reboot flags.
+         Guard: verif20/test_no_edr_triggers.py fails the build if the automatic
+         status code ever again contains vss/shadow/wbadmin/bcdedit/wmic/delete.
+         NOTE: the five operations the USER selects by hand under Remote Tools
+         (VSS Storage Report, three Delete VSS ..., Resize VSS Storage) still run
+         vssadmin by design and WILL be flagged by EDR -- they were never run
+         automatically and are unchanged since v3.7/v3.8.
+    CHG  PORT IS NOW FIXED AT 3030 (standing rule from the owner; no more port
+         increments). Re-run install_service.bat as Administrator; bookmarks :3030.
+
   v3.9 (Web edition: port 3039 -> 3041; this edition has no port):
     NEW  TARGET STATUS PANEL (all three editions). A live "what is this PC right now"
          view above the log, so you no longer have to run a report to see the
@@ -136,10 +154,10 @@ import base64
 import secrets
 from pathlib import Path
 
-VER = "v3.9  Native Python GUI Edition (Tkinter)"
-COPYRIGHT = ("(c) 2024-2026 Abdullah | PC Admin & Performance Tool v3.9 | "
+VER = "v3.10  Native Python GUI Edition (Tkinter)"
+COPYRIGHT = ("(c) 2024-2026 Abdullah | PC Admin & Performance Tool v3.10 | "
              "All Rights Reserved | abuabdullah.be@outlook.com")
-COPYRIGHT_LONG = ("(c) 2024-2026 Abdullah | PC Admin & Performance Tool v3.9 | "
+COPYRIGHT_LONG = ("(c) 2024-2026 Abdullah | PC Admin & Performance Tool v3.10 | "
                    "Native Python GUI Edition | All Rights Reserved | "
                    "abuabdullah.be@outlook.com")
 
@@ -3877,9 +3895,11 @@ def launch_console(op_id, host, username, password, transport):
 #     is UP at the address you typed and whether its NAME still points at an old IP.
 #   * WinRM SNAPSHOT (needs the credentials, read-only, one short script): computer
 #     name + domain, Ethernet/adapter IP-mask-gateway-DNS and static/DHCP mode, uptime,
-#     services running/total, VSS shadow copies + storage, disk type + free space,
+#     services running/total, disk type + free space,
 #     mapped drives of signed-in users, pending reboot, logged-on user.
 # Nothing here changes anything on the target.
+# v3.10 EDR RULE: this script must NEVER touch volume-snapshot / backup / recovery features
+# (EDR/XDR treat those as ransomware activity and isolate the host). Guarded by test_no_edr_triggers.py.
 STATUS_SCRIPT = r'''
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
@@ -3908,18 +3928,6 @@ try {
     $sv = @(Get-Service)
     Emit 'svc' ('{0};{1}' -f @($sv | Where-Object { $_.Status -eq 'Running' }).Count, $sv.Count)
 } catch { Emit 'err_services' $_.Exception.Message }
-try {
-    Emit 'vss_copies' @(Get-CimInstance Win32_ShadowCopy).Count
-    $vo = (& vssadmin list shadowstorage 2>$null) | Out-String
-    foreach ($blk in ($vo -split 'Shadow Copy Storage association')) {
-        if ($blk -match 'For volume:\s*\((\w):\)') {
-            $vl = $Matches[1]; $u = ''; $m = ''
-            if ($blk -match 'Used Shadow Copy Storage space:\s*([^\r\n]+)') { $u = $Matches[1].Trim() }
-            if ($blk -match 'Maximum Shadow Copy Storage space:\s*([^\r\n]+)') { $m = $Matches[1].Trim() }
-            Emit ('vss_' + $vl) ($u + ';' + $m)
-        }
-    }
-} catch { Emit 'err_vss' $_.Exception.Message }
 try {
     $types = @(Get-PhysicalDisk | ForEach-Object { [string]$_.MediaType } | Where-Object { $_ } | Sort-Object -Unique)
     Emit 'disk_types' ($types -join ',')
@@ -3953,7 +3961,7 @@ Emit 'done' '1'
 
 def parse_status_output(text):
     """Turn the 'PCAT_ST|key|value' lines printed by STATUS_SCRIPT into a dict."""
-    d = {"net": [], "disks": [], "drives": [], "vss": {}, "errors": []}
+    d = {"net": [], "disks": [], "drives": [], "errors": []}
     for raw in (text or "").splitlines():
         line = raw.strip()
         if not line.startswith("PCAT_ST|"):
@@ -3975,9 +3983,6 @@ def parse_status_output(text):
         elif k == "drive":
             f = (v.split(";") + ["", "", ""])[:3]
             d["drives"].append({"user": f[0], "letter": f[1], "share": f[2]})
-        elif k.startswith("vss_") and k != "vss_copies":
-            f = (v.split(";") + ["", ""])[:2]
-            d["vss"][k[4:].upper()] = {"used": f[0], "max": f[1]}
         elif k.startswith("err_"):
             d["errors"].append(k[4:] + ": " + v)
         else:
@@ -4109,10 +4114,6 @@ def build_status(host, admin, deep=None, deep_err=None, busy=False, snap=None):
             L.append("Adapter     : no active IPv4 adapter reported")
         if deep.get("svc"):
             L.append(f"Services    : {deep['svc'][0]} running / {deep['svc'][1]} total")
-        vc = deep.get("vss_copies")
-        if vc is not None:
-            vs = "; ".join(f"{k}: used {v['used'] or '?'}, max {v['max'] or '?'}" for k, v in deep.get("vss", {}).items())
-            L.append(f"VSS         : {vc} shadow copies" + (f"  ({vs})" if vs else ""))
         if deep.get("disk_types") is not None:
             L.append(f"Disk type   : {deep['disk_types'] or 'unknown'}")
         for dk in deep.get("disks", []):
@@ -4510,7 +4511,7 @@ class PCAdminApp:
             self.ts_cells.append((small, val))
         for c in range(3):
             ts_grid.columnconfigure(c, weight=1, uniform="ts")
-        self.btn_ts_det = tk.Button(right, text="\u25B8 Target details (adapters, services, VSS, disks, mapped drives)",
+        self.btn_ts_det = tk.Button(right, text="\u25B8 Target details (adapters, services, disks, mapped drives)",
                                     bg=BG, fg=CYAN, relief="flat", anchor="w", font=("Segoe UI", 8, "bold"),
                                     command=self._ts_toggle_detail)
         self.btn_ts_det.pack(fill="x", pady=(2, 0))
@@ -4596,10 +4597,10 @@ class PCAdminApp:
         self._ts_detail_open = not self._ts_detail_open
         if self._ts_detail_open:
             self.txt_ts.pack(fill="x", pady=(0, 2), after=self.btn_ts_det)
-            self.btn_ts_det.config(text="\u25BE Target details (adapters, services, VSS, disks, mapped drives)")
+            self.btn_ts_det.config(text="\u25BE Target details (adapters, services, disks, mapped drives)")
         else:
             self.txt_ts.pack_forget()
-            self.btn_ts_det.config(text="\u25B8 Target details (adapters, services, VSS, disks, mapped drives)")
+            self.btn_ts_det.config(text="\u25B8 Target details (adapters, services, disks, mapped drives)")
 
     def _ts_toggle_live(self):
         if self._ts_after is not None:

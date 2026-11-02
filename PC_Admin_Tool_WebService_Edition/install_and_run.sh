@@ -26,7 +26,7 @@ pip install --quiet -r requirements.txt
 if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE '[:.]3030$'; then
     echo ""
     echo "*** WARNING: TCP port 3030 is already in use on this machine -- the service cannot start until it is free. ***"
-    echo "    Find the owner with:  ss -ltnp | grep 3030   (then tell Claude \"port 3030 is taken\" to skip to the next port)"
+    echo "    Find the owner with:  ss -ltnp | grep 3030   (the port is fixed at 3030 -- stop that program, or uninstall the older copy of this tool)"
 fi
 
 echo ""
